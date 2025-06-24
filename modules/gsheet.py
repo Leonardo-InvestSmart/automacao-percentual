@@ -5,21 +5,23 @@ import streamlit as st
 import pygsheets
 from oauth2client.service_account import ServiceAccountCredentials
 from streamlit import error
-from config import GOOGLE_SHEETS_KEYFILE, SPREADSHEET_ID
+from config import GOOGLE_SHEETS_CREDENTIALS, SPREADSHEET_ID
 
 @st.cache_resource(show_spinner=False)
-def autenticar_gsheets(keyfile_path: str):
+def autenticar_gsheets():
     scope = [
         "https://www.googleapis.com/auth/spreadsheets",
         "https://www.googleapis.com/auth/drive"
     ]
-    creds = ServiceAccountCredentials.from_json_keyfile_name(keyfile_path, scope)
+    creds = ServiceAccountCredentials.from_json_keyfile_dict(
+        GOOGLE_SHEETS_CREDENTIALS, scope
+    )
     return gspread.authorize(creds)
 
 @st.cache_data(ttl=300)
 def carregar_dataframe(worksheet_name: str) -> pd.DataFrame:
     try:
-        gc = autenticar_gsheets(GOOGLE_SHEETS_KEYFILE)
+        gc = autenticar_gsheets()
         sh = gc.open_by_key(SPREADSHEET_ID)
         ws = sh.worksheet(worksheet_name)
         records = ws.get_all_records(value_render_option="FORMATTED_VALUE")
@@ -44,7 +46,7 @@ def carregar_dataframe(worksheet_name: str) -> pd.DataFrame:
 
 def sobrescrever_worksheet(df: pd.DataFrame, worksheet_name: str):
     try:
-        gc = autenticar_gsheets(GOOGLE_SHEETS_KEYFILE)
+        gc = autenticar_gsheets()
         sh = gc.open_by_key(SPREADSHEET_ID)
         ws = sh.worksheet(worksheet_name)
         ws.clear()
@@ -54,7 +56,7 @@ def sobrescrever_worksheet(df: pd.DataFrame, worksheet_name: str):
 
 def append_worksheet(linhas: list[list], worksheet_name: str):
     try:
-        gc = autenticar_gsheets(GOOGLE_SHEETS_KEYFILE)
+        gc = autenticar_gsheets()
         sh = gc.open_by_key(SPREADSHEET_ID)
         ws = sh.worksheet(worksheet_name)
         ws.append_rows(linhas, value_input_option="USER_ENTERED")
