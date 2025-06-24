@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.env
+
+# Dados/artefatos
+*.xlsx
+*.xls
+*.pdf
+
+# Streamlit
+.streamlit/
+
+# VSCode
+.vscode/
+
+# Credenciais e variáveis de ambiente
+*.json
+.env
