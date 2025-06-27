@@ -18,7 +18,7 @@ def autenticar_gsheets():
     )
     return gspread.authorize(creds)
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=60)
 def carregar_dataframe(worksheet_name: str) -> pd.DataFrame:
     try:
         gc = autenticar_gsheets()
@@ -62,3 +62,23 @@ def append_worksheet(linhas: list[list], worksheet_name: str):
         ws.append_rows(linhas, value_input_option="USER_ENTERED")
     except Exception as e:
         st.error(f"Falha ao anexar linhas na aba '{worksheet_name}': {e}")
+
+def update_worksheet_cell(
+    worksheet_name: str,
+    row: int,
+    col: str | int,
+    value
+):
+    try:
+        gc = autenticar_gsheets()
+        sh = gc.open_by_key(SPREADSHEET_ID)
+        ws = sh.worksheet(worksheet_name)
+        # se passou nome de coluna, resolve índice
+        if isinstance(col, str):
+            headers = ws.row_values(1)
+            col_index = headers.index(col) + 1
+        else:
+            col_index = col
+        ws.update_cell(row, col_index, value)
+    except Exception as e:
+        st.error(f"Falha ao atualizar célula em '{worksheet_name}': {e}")
