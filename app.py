@@ -630,14 +630,15 @@ def main():
                             content_type="HTML"
                         )
 
-                    # envia email de aprovação
+                    # envia email de aprovação (HTML)
                     if not aprovados.empty:
                         from modules.email_service import send_approval_result
                         send_approval_result(
                             aprovados,
                             lider_email=lider_email,
-                            diretor_email=st.session_state.user
+                            director_email=st.session_state.user
                         )
+
 
                     st.success(
                         f"{len(aprovados)} aprovação(ões) e {len(recusados)} recusa(s) registradas!"
