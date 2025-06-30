@@ -2,14 +2,17 @@ import streamlit as st
 from PIL import Image
 import os
 import base64
+from modules.gsheet import carregar_dataframe
+
 
 def apply_theme():
     st.set_page_config(
-        page_title="My Commission",
+        page_title="SmartC",
         page_icon="assets/simbolo_roxo.svg",
         layout="wide",
         initial_sidebar_state="expanded"
     )
+    
     st.markdown(
         """
         <style>
@@ -119,9 +122,14 @@ def apply_theme():
             margin-bottom: 0.1rem !important;
         }
 
+        /* esconde o rodapé “Running …” que aparece durante carregar_dataframe() */
+        div[data-testid="stStatusWidget"] { display: none !important;
+        }
+
         </style>
         """,
         unsafe_allow_html=True
+        
     )
 
 def rodape_customizado():
@@ -154,7 +162,7 @@ def rodape_customizado():
 
         <div class="custom-footer">
             © 2025 InvestSmart – Todos os direitos reservados. <br>
-            <b>Made by Comissões</b>
+            <b>Made by Comissões v1.0</b>
         </div>
         """,
         unsafe_allow_html=True
@@ -184,11 +192,11 @@ def mostrar_data_editor(df_base, disabled_cols=None):
     )
 
 def mostrar_tutorial_inicial():
-    st.title("Bem-vindo ao InvestSmart Percentuais!")
+    st.title("Bem-vindo ao SmartC!")
     st.write("Assista ao vídeo abaixo para aprender a usar a plataforma:")
 
     # 1) lê os bytes
-    with open("assets/Tutorial_1.mp4", "rb") as f:
+    with open("assets/Tutorial_2.mp4", "rb") as f:
         video_bytes = f.read()
 
     # 2) converte para base64
@@ -208,9 +216,10 @@ def mostrar_tutorial_inicial():
     st.write("---")
     st.subheader("Visão Geral das Funcionalidades")
     st.markdown("""
-    - **Gestão de Percentuais:** Ajuste taxas de cada assessor  
-    - **Validação:** Diretores aprovam reduções  
-    - **Painel Analítico:** Métricas e gráficos  
+    - **Gestão de Percentuais:** Ajuste de taxas de cada assessor   
+    - **Validação:** Diretores aprovam as reduções de percentuais solicitadas pelos líderes
+    - **Painel Analítico:** Métricas e gráficos da interação com a plataforma
+    - **Ajuda e FAQ:** Ajuda rápida em vídeo e respostas às dúvidas mais comuns            
     """)
     if st.button("Entendi, continuar"):
         st.session_state.first_login = False
@@ -221,7 +230,7 @@ def pagina_ajuda():
 
     # Vídeo Tutorial embutido via HTML5
     st.subheader("Vídeo Tutorial")
-    with open("assets/Tutorial_1.mp4", "rb") as f:
+    with open("assets/Tutorial_2.mp4", "rb") as f:
         video_bytes = f.read()
     b64 = base64.b64encode(video_bytes).decode()
     video_html = f"""
@@ -334,3 +343,5 @@ def pagina_ajuda():
                 f"---"
             )
 
+def load_df_with_gif(sheet_name: str):
+    return carregar_dataframe(sheet_name)

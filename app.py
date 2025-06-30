@@ -3,20 +3,18 @@ import pandas as pd
 from datetime import datetime
 from collections import defaultdict
 import random
-import base64
 
 from config import *
-from modules.ui_helpers import apply_theme, mostrar_data_editor, adicionar_logo_sidebar, rodape_customizado, mostrar_tutorial_inicial, pagina_ajuda
+from modules.ui_helpers import apply_theme, mostrar_data_editor, adicionar_logo_sidebar, rodape_customizado, mostrar_tutorial_inicial, pagina_ajuda, carregar_dataframe
 from modules.auth import do_login_stage1, do_login_stage2
-from modules.email_service import enviar_codigo_email, send_director_request, enviar_resumo_email
-from modules.gsheet import carregar_dataframe, append_worksheet, sobrescrever_worksheet, update_worksheet_cell
+from modules.email_service import enviar_codigo_email, send_director_request, enviar_resumo_email, _build_email_html
+from modules.gsheet import carregar_dataframe, append_worksheet, sobrescrever_worksheet, update_worksheet_cell, get_all_suggestions, add_suggestion, user_voted_this_month, get_monthly_votes, add_vote
 from modules.formatters import (
     parse_valor_percentual,
     formatar_percentual_para_planilha,
     formatar_para_exibir
 )
 from modules.analytics import display_analytics
-
 
 def main():
     # — Tema e CSS global e sidebar —
@@ -52,7 +50,12 @@ def main():
 
     # — Define colunas fixas e percentuais —
     cols_fixos = ["SIGLA", "CPF", "NOME", "EMAIL", "FILIAL", "FUNCAO"]
-    col_perc   = [c for c in df_assessores.columns if c not in cols_fixos]
+    col_perc = [
+        c for c in df_assessores.columns
+        if c not in cols_fixos
+        and isinstance(c, str)
+        and c.strip() != ""
+    ]
 
     # — Filiais do usuário (Líder ou Diretor) e DataFrame de filiais correspondentes —
     nome_usuario = st.session_state.dados_lider["LIDER"]
@@ -78,9 +81,7 @@ def main():
         "Gestão de Percentuais",
         "Validação",
         "Painel Analítico",
-        "Extrato de Comissões",
-        "Recebíveis Futuros",
-        "Descontos",
+        "Sugestão de Melhoria",
         "Ajuda e FAQ"
     ]
     if "pagina" not in st.session_state:
@@ -120,10 +121,8 @@ def main():
     page_icons = {
         "Gestão de Percentuais": "💼",
         "Painel Analítico":       "📊",
-        "Extrato de Comissões":   "🧾",
-        "Recebíveis Futuros":     "💰",
-        "Descontos":              "🏷️",
         "Validação":              "✅",
+        "Sugestão de Melhoria":  "💡",
         "Ajuda e FAQ":           "❓"
     }
     icon = page_icons.get(pagina, "")
@@ -132,7 +131,7 @@ def main():
         unsafe_allow_html=True
     )
 
-    if pagina != "Ajuda e FAQ":
+    if pagina not in ["Ajuda e FAQ", "Sugestão de Melhoria"]:
         # — Seletor de filial com label no mesmo estilo da saudação —
         st.markdown(
             """
@@ -176,8 +175,12 @@ def main():
         ].iloc[0]
         # monta um DataFrame só com FILIAL + col_perc, sem DIRETOR
         df_teto = pd.DataFrame([{
-            **{"FILIAL": teto_row["FILIAL"]},
-            **{p: formatar_para_exibir(teto_row[p]) for p in col_perc}
+            "FILIAL": teto_row["FILIAL"],
+            **{
+                p: formatar_para_exibir(teto_row[p])
+                for p in col_perc
+                if p in teto_row.index
+            }
         }])
         # exibe via DataEditor (índice oculto por padrão)
         mostrar_data_editor(df_teto, disabled_cols=df_teto.columns.tolist())
@@ -216,11 +219,16 @@ def main():
                 agora = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
                 alteracoes, erros_teto = [], []
 
+                # —— Alinha índices para evitar KeyError —— 
+                df_initial = df_editor_initial.reset_index(drop=True)
+                df_new     = df_edited.reset_index(drop=True)
+
                 # validações de teto e coleta de alterações
-                for idx, nova in df_edited.iterrows():
+                for i in range(len(df_new)):
+                    nova = df_new.loc[i]
                     nome_ass = nova["NOME"]
                     for p in col_perc:
-                        old = str(df_editor_initial.at[idx, p]).strip()
+                        old = str(df_initial.at[i, p]).strip()            # usa posição i
                         new = str(nova[p]).strip()
                         if old != new:
                             new_f  = parse_valor_percentual(new)
@@ -253,6 +261,7 @@ def main():
                         st.session_state.verification_code      = code
                         enviar_codigo_email(
                             st.session_state.dados_lider["EMAIL_LIDER"],
+                            nome_usuario,
                             code
                         )
                         st.session_state.awaiting_verification = True
@@ -262,16 +271,6 @@ def main():
             if st.button("🧹 Limpar Alterações", key="limpar_tudo"):
                 st.session_state.df_current        = df_editor_initial.copy()
                 st.session_state.show_limpar_erros = False
-
-        with btn_reset_err:
-            if st.session_state.show_limpar_erros and st.button("Limpar Erros", key="limpar_erros"):
-                df_tmp = st.session_state.df_current.copy()
-                for p in col_perc:
-                    teto_val = parse_valor_percentual(str(teto_row[p]).strip())
-                    for i in df_tmp.index:
-                        if parse_valor_percentual(str(df_tmp.at[i, p])) > teto_val:
-                            df_tmp.at[i, p] = df_editor_initial.at[i, p]
-                st.session_state.df_current = df_tmp
 
         # 4) Fase 2: confirmação do código e aplicação
         if st.session_state.awaiting_verification:
@@ -342,7 +341,7 @@ def main():
                             alt["PRODUTO"],
                             alt["ANTERIOR"],
                             alt["NOVO"],
-                            "https://share.streamlit.io/seu-usuario/seu-repo/main/Validação"
+                            "https://smartc.streamlit.app/"
                         )
                     st.info("As alterações foram encaminhadas ao Diretor para validação.")
 
@@ -370,34 +369,65 @@ def main():
                     full = pd.concat([df_others, df_new[cols_fixos + col_perc]], ignore_index=True)
                     sobrescrever_worksheet(full, "Assessores")
 
-                    # 5a) envia resumo por e-mail ao Líder
+                    # 5a) envia resumo por e-mail ao Líder (HTML)
                     subj_l = f"[Líder] Resumo de alterações em {selected_filial}"
-                    txt_l  = "\n".join(
-                        f"- {x['NOME']}: {x['PRODUTO']} de {x['ANTERIOR']} → {x['NOVO']}"
+                    lista_html = "".join(
+                        f"<li>{x['NOME']}: {x['PRODUTO']} de {x['ANTERIOR']}% → {x['NOVO']}%</li>"
                         for x in nao_reducoes
                     )
-                    body_l = (
-                        f"Olá {nome_usuario},\n\nForam aplicadas as seguintes alterações "
-                        f"em {selected_filial} no dia {st.session_state.pending_agora}:\n\n{txt_l}"
-                    )
-                    enviar_resumo_email([st.session_state.dados_lider["EMAIL_LIDER"]], subj_l, body_l)
+                    conteudo_html_l = f"""
+                    <p>Olá {nome_usuario},</p>
+                    <p>Foram aplicadas as seguintes alterações em <strong>{selected_filial}</strong>
+                    no dia <strong>{st.session_state.pending_agora}</strong>:</p>
+                    <ul>
+                    {lista_html}
+                    </ul>
+                    """
+                    html_l = _build_email_html(subj_l, conteudo_html_l)
+                    enviar_resumo_email(
+                        [st.session_state.dados_lider["EMAIL_LIDER"]],
+                        subj_l,
+                        html_l,
+                        content_type="HTML"
+                    )   
 
-                    # 5b) envia resumo para cada Assessor
+                    # 5b) envia resumo para cada Assessor (com lookup de e-mail)
                     agrup = defaultdict(list)
                     for x in nao_reducoes:
                         agrup[x["NOME"]].append(x)
+
                     for nome_a, alts in agrup.items():
-                        email_a = df_ass_filial.loc[df_ass_filial["NOME"] == nome_a, "EMAIL"].iloc[0]
+                        # — Busca o e-mail do assessor no DataFrame original —
+                        filtro = (
+                            (df_assessores["NOME"].str.strip().str.upper() == nome_a.strip().upper())
+                            & (df_assessores["FILIAL"].str.strip().str.upper() == selected_filial.strip().upper())
+                        )
+                        df_sel = df_assessores.loc[filtro]
+                        if df_sel.empty:
+                            continue  # se não encontrar, pula este assessor
+                        email_a = df_sel["EMAIL"].iloc[0]
+
                         subj_a  = f"[Você] Resumo de alterações em {selected_filial}"
-                        txt_a   = "\n".join(
-                            f"- {y['PRODUTO']}: {y['ANTERIOR']} → {y['NOVO']}"
+                        lista_html_a = "".join(
+                            f"<li>{y['PRODUTO']}: {y['ANTERIOR']}% → {y['NOVO']}%</li>"
                             for y in alts
                         )
-                        body_a  = (
-                            f"Olá {nome_a},\n\nO líder {nome_usuario} realizou as seguintes alterações "
-                            f"em {selected_filial} no dia {st.session_state.pending_agora}:\n\n{txt_a}"
+                        conteudo_html_a = f"""
+                        <p>Olá {nome_a},</p>
+                        <p>O líder <strong>{nome_usuario}</strong> realizou as seguintes alterações em
+                        <strong>{selected_filial}</strong> no dia <strong>{st.session_state.pending_agora}</strong>:</p>
+                        <ul>
+                        {lista_html_a}
+                        </ul>
+                        """
+                        html_a = _build_email_html(subj_a, conteudo_html_a)
+                        enviar_resumo_email(
+                            [email_a],
+                            subj_a,
+                            html_a,
+                            content_type="HTML"
                         )
-                        enviar_resumo_email([email_a], subj_a, body_a)
+
 
                     st.success(f"Alterações registradas com sucesso em {st.session_state.pending_agora}!")
                     st.subheader("Resumo das alterações:")
@@ -430,11 +460,87 @@ def main():
     elif pagina == "Ajuda e FAQ":
         pagina_ajuda()
 
+    elif pagina == "Sugestão de Melhoria":
+        st.subheader("💡 Sugestão de Melhoria")
+        user = nome_usuario  # já inicializado no topo do app
+
+        # ── 1) Envio de novas sugestões (com reload automático) ──
+        if "suggestion_sent" not in st.session_state:
+            st.session_state["suggestion_sent"] = False
+
+        nova = st.text_area("Digite sua sugestão de melhoria")
+        if not st.session_state["suggestion_sent"]:
+            if st.button("Enviar sugestão"):
+                if nova.strip():
+                    add_suggestion(nova, user)
+                    st.cache_data.clear()              # limpa cache do gsheet
+                    st.session_state["suggestion_sent"] = True
+        else:
+            st.success("✅ Sugestão enviada!")
+            # limpa o flag para que, após este run, o form volte ao normal
+            st.session_state["suggestion_sent"] = False
+
+        # ── 2) Votação mensal (voto único por usuário) ──
+        suggestions = get_all_suggestions()              # já puxadas do banco
+        options     = [s["Sugestao"] for s in suggestions]
+
+        if not user_voted_this_month(user):
+            st.markdown("### 🗳️ Vote na sua sugestão favorita")
+            selected_idx = st.radio(
+                "Escolha uma opção:",
+                list(range(len(options))),
+                format_func=lambda i: options[i],
+                key="vote_choice"
+            )
+            if st.button("Confirmar Voto"):
+                add_vote(suggestions[selected_idx]["ID"], user)
+                st.cache_data.clear()          # garante dados frescos
+                st.success("✅ Seu voto foi registrado com sucesso!")
+
+        # ── 3) Resultados da votação (após votar) ──
+        if user_voted_this_month(user):
+            st.info("Você já votou neste mês! Acompanhe abaixo o ranking dos votos nas sugestões de melhoria")
+            st.markdown("### 🏆 Resultados da Votação")
+
+            votos = get_monthly_votes()
+            total = len(votos)
+
+            # prepara lista de resultados
+            results = []
+            for s in suggestions:
+                cnt = sum(1 for v in votos if v["Sugestao_ID"] == s["ID"])
+                pct = (cnt / total * 100) if total else 0
+                results.append({
+                    "Sugestão":   s["Sugestao"],
+                    "Votos":      cnt,
+                    "Percentual": f"{pct:.1f}%"
+                })
+
+            # monta e exibe o DataFrame ordenado
+            df_rank = (
+                pd.DataFrame(results)
+                .sort_values("Votos", ascending=False)
+                .reset_index(drop=True)
+            )
+            df_rank.insert(0, "Posição", [f"{i+1}º" for i in df_rank.index])
+
+            styled = df_rank.style.set_table_styles([
+                {"selector": "th.blank",                      "props": [("display", "none")]},
+                {"selector": "th.row_heading, td.row_heading", "props": [("display", "none")]},
+                {"selector": "th, td",                        "props": [("text-align", "center")]}
+            ])
+
+            st.table(styled)
+
+
+
+
+
     elif pagina == "Validação":
         st.subheader("Pendências de Validação")
         df_alt = carregar_dataframe("Alterações")
         df_pend = df_alt[
-            (df_alt["Alteracao Necessaria"] == "SIM")
+            (df_alt["Validacao Necessaria"] == "SIM")
             & (df_alt["Alteracao Aprovada"] == "NAO")
             & (df_alt["Filial"].astype(str).str.strip().str.upper()
             == selected_filial.strip().upper())
@@ -503,14 +609,26 @@ def main():
                     # envia email de recusa
                     for _, row in recusados.iterrows():
                         assunto = f"[Validação] Redução recusada em {selected_filial}"
-                        corpo = (
-                            f"Olá {row['Usuario']},\n\n"
-                            f"Sua solicitação de redução do produto {row['Produto']} "
-                            f"de {row['Percentual Antes']}% → {row['Percentual Depois']}% em "
-                            f"{selected_filial} foi *recusada* pelo Diretor.\n\n"
-                            f"Comentário do Diretor:\n{row['Comentario Diretor']}"
+                        conteudo_html_r = f"""
+                        <p>Olá {row['Usuario']},</p>
+                        <p>
+                        Sua solicitação de redução do produto
+                        <strong>{row['Produto']}</strong>
+                        de <strong>{row['Percentual Antes']}% → {row['Percentual Depois']}%</strong>
+                        em <strong>{selected_filial}</strong> foi
+                        <strong style="color:#dc3545;">recusada</strong> pelo Diretor.
+                        </p>
+                        <p>Comentário do Diretor:<br/>
+                        <em>{row['Comentario Diretor']}</em>
+                        </p>
+                        """
+                        html_r = _build_email_html(assunto, conteudo_html_r)
+                        enviar_resumo_email(
+                            [lider_email],
+                            assunto,
+                            html_r,
+                            content_type="HTML"
                         )
-                        enviar_resumo_email([lider_email], assunto, corpo)
 
                     # envia email de aprovação
                     if not aprovados.empty:

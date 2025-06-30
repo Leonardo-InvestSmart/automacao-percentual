@@ -3,13 +3,27 @@ from datetime import datetime
 import msal
 import requests
 import streamlit as st
+import base64
 
 from config import CLIENT_ID, TENANT_ID, CLIENT_SECRET, EMAIL_USER
 
-def enviar_resumo_email(destinatarios: list[str], assunto: str, corpo: str) -> bool:
+
+def enviar_resumo_email(
+    destinatarios: list[str],
+    assunto: str,
+    corpo: str,
+    content_type: str = "Text"
+) -> bool:
     """
     Envia um e-mail com assunto e corpo para uma lista de destinatários via Microsoft Graph.
+
+    Parâmetros:
+    - destinatarios: lista de endereços de e-mail
+    - assunto: assunto do e-mail
+    - corpo: conteúdo (plain text ou HTML)
+    - content_type: "Text" ou "HTML"
     """
+    # Autenticação MSAL
     app = msal.ConfidentialClientApplication(
         CLIENT_ID,
         authority=f"https://login.microsoftonline.com/{TENANT_ID}",
@@ -21,11 +35,12 @@ def enviar_resumo_email(destinatarios: list[str], assunto: str, corpo: str) -> b
         return False
     token = token_resp["access_token"]
 
+    # Monta payload
     mail = {
         "message": {
             "subject": assunto,
             "body": {
-                "contentType": "Text",
+                "contentType": content_type,
                 "content": corpo
             },
             "toRecipients": [
@@ -35,6 +50,8 @@ def enviar_resumo_email(destinatarios: list[str], assunto: str, corpo: str) -> b
         },
         "saveToSentItems": "true"
     }
+
+    # Envio via Graph API
     endpoint = f"https://graph.microsoft.com/v1.0/users/{EMAIL_USER}/sendMail"
     headers = {
         "Authorization": f"Bearer {token}",
@@ -43,6 +60,7 @@ def enviar_resumo_email(destinatarios: list[str], assunto: str, corpo: str) -> b
     resp = requests.post(endpoint, headers=headers, json=mail)
     if resp.status_code == 202:
         return True
+
     st.error(f"Falha ao enviar e-mail: {resp.status_code} – {resp.text}")
     return False
 
@@ -57,80 +75,120 @@ def gerar_senha_personalizada(filial: str, nome_lider: str, cpf: str) -> str:
     parte_cpf    = cpf_limpo[:6] if len(cpf_limpo) >= 6 else cpf_limpo
     return parte_filial + parte_lider + parte_cpf
 
-def enviar_codigo_email(destino: str, codigo: str) -> bool:
-    app = msal.ConfidentialClientApplication(
-        CLIENT_ID,
-        authority=f"https://login.microsoftonline.com/{TENANT_ID}",
-        client_credential=CLIENT_SECRET
+def enviar_codigo_email(destino: str, nome: str, codigo: str) -> bool:
+    """
+    Envia um código OTP de acesso em formato HTML estilizado.
+    """
+    # Define assunto e corpo em HTML
+    assunto = "🔐 Código de confirmação • SmartC"
+    conteudo_html = f"""
+    <p>Olá {nome} 👋,</p>
+    <p>Seu código de confirmação para acesso é:</p>
+    <p style=\"font-size:1.8em;color:#9966ff;\"><strong>{codigo}</strong></p>
+    <p style=\"color:#888;font-size:0.9em;\">Caso não tenha sido você, basta ignorar esta mensagem.</p>
+    """
+    html = _build_email_html(assunto, conteudo_html)
+    return enviar_resumo_email(
+        [destino],
+        assunto,
+        html,
+        content_type="HTML"
     )
-    token_response = app.acquire_token_for_client(
-        scopes=["https://graph.microsoft.com/.default"]
-    )
-    if "access_token" not in token_response:
-        st.error(
-            f"Erro ao obter token de autenticação: "
-            f"{token_response.get('error_description', token_response.get('error'))}"
-        )
-        return False
-    access_token = token_response["access_token"]
-
-    mail_payload = {
-        "message": {
-            "subject": "Código de confirmação - Login",
-            "body": {
-                "contentType": "Text",
-                "content": (
-                    f"Olá,\n\nSeu código de confirmação para acesso é: {codigo}\n"
-                    "\nSe não foi você, ignore este e-mail."
-                )
-            },
-            "toRecipients": [
-                {"emailAddress": {"address": destino}}
-            ],
-            "from": {"emailAddress": {"address": EMAIL_USER}}
-        },
-        "saveToSentItems": "true"
-    }
-
-    endpoint = f"https://graph.microsoft.com/v1.0/users/{EMAIL_USER}/sendMail"
-    headers = {
-        "Authorization": f"Bearer {access_token}",
-        "Content-Type": "application/json"
-    }
-    resp = requests.post(endpoint, headers=headers, json=mail_payload)
-    if resp.status_code == 202:
-        return True
-
-    st.error(f"Falha ao enviar e-mail de confirmação: {resp.status_code} – {resp.text}")
-    return False
 
 def send_director_request(
-    director_email,  # str: e-mail do diretor
-    lider,           # str: nome do líder
-    filial,          # str: nome da filial
-    assessor,        # str: nome do assessor
-    produto,         # str: nome do produto/segmento (novo parâmetro)
-    antigo,          # str ou int: percentual antigo
-    novo,            # str ou int: percentual novo
-    link             # str: URL da página de Validação
-):
+    director_email: str,
+    lider: str,
+    filial: str,
+    assessor: str,
+    produto: str,
+    antigo: float,
+    novo: float,
+    link: str
+) -> bool:
+    """
+    Envia ao Diretor um pedido de validação de redução, com botão e layout da marca.
+    Utiliza o mesmo helper (enviar_resumo_email) para garantir autenticação e envio.
+    """
     assunto = f"[Diretor] Validação de redução em {filial}"
-    corpo = (
-        f"Olá Diretor,\n\n"
-        f"O líder {lider} solicitou redução do produto **{produto}** "
-        f"de {antigo}% → {novo}% para {assessor} em {filial}.\n\n"
-        f"Acesse a página de Validação: {link}\n\n"
-        "Obrigado."
+    conteudo_html = f"""
+    <p>Olá,</p>
+    <p>O líder <strong>{lider}</strong> solicitou redução do produto <strong>{produto}</strong><br/>
+    de <strong>{antigo}% → {novo}%</strong> para <strong>{assessor}</strong> em <strong>{filial}</strong>.</p>
+    <p style=\"text-align:center;margin:2rem 0;\">
+      <a href=\"{link}\" style=\"display:inline-block;padding:12px 24px;
+         background-color:#9966ff;color:#ffffff;text-decoration:none;border-radius:4px;\">
+        Ver página de Validação
+      </a>
+    </p>
+    <p>Obrigado!</p>
+    """
+    html = _build_email_html(assunto, conteudo_html)
+    return enviar_resumo_email(
+        [director_email],
+        assunto,
+        html,
+        content_type="HTML"
     )
-    return enviar_resumo_email([director_email], assunto, corpo)
 
 def send_approval_result(df_changes, lider_email, director_email):
     for _, row in df_changes.iterrows():
         status = "APROVADA" if row["Alteracao Aprovada"] == "SIM" else "REJEITADA"
         assunto = f"[Validação] Alteração {status} em {row['Filial']}"
-        corpo  = (
-            f"Olá,\n\nA alteração de {row['ANTERIOR']}% → {row['NOVO']}% "
-            f"para {row['NOME']} em {row['Filial']} foi {status} pelo Diretor.\n\n"
-            "Obrigado."
+
+        # monta o HTML no mesmo estilo do código de confirmação
+        conteudo_html = f"""
+        <p>Olá,</p>
+        <p>
+          A alteração de <strong>{row['ANTERIOR']}% → {row['NOVO']}%</strong>
+          para <strong>{row['NOME']}</strong> em
+          <strong>{row['Filial']}</strong> foi
+          <strong style="color:{'#28a745' if status=='APROVADA' else '#dc3545'};">
+            {status.lower()}
+          </strong> pelo Diretor.
+        </p>
+        <p>Obrigado!</p>
+        """
+        html = _build_email_html(assunto, conteudo_html)
+        enviar_resumo_email(
+            [lider_email, director_email],
+            assunto,
+            html,
+            content_type="HTML"
         )
-        enviar_resumo_email([lider_email, director_email], assunto, corpo)
+
+def _get_logo_data_uri() -> str:
+    with open("assets/investsmart_horizontal_branco.png", "rb") as f:
+        b64 = base64.b64encode(f.read()).decode()
+    return f"data:image/png;base64,{b64}"
+
+def _build_email_html(titulo: str, conteudo_html: str) -> str:
+    logo_data_uri = _get_logo_data_uri()
+    return f"""
+    <html>
+      <body style="margin:0;padding:0;font-family:Montserrat,sans-serif;background-color:#f4f4f4;">
+        <table align="center" width="600" cellpadding="0" cellspacing="0"
+               style="background-color:#ffffff;border-radius:8px;overflow:hidden;">
+          <!-- header com logo -->
+          <tr>
+            <td style="background-color:#9966ff;padding:20px;text-align:center;">
+              <img src="{logo_data_uri}" alt="SmartC" width="150" style="display:block;margin:0 auto;" />
+            </td>
+          </tr>
+          <!-- título -->
+          <tr>
+            <td style="padding:20px;">
+              <h2 style="color:#4A4A4A;margin-bottom:1rem;">{titulo}</h2>
+              {conteudo_html}
+            </td>
+          </tr>
+          <!-- rodapé -->
+          <tr>
+            <td style="background-color:#f0f0f0;padding:10px;text-align:center;font-size:12px;color:#666;">
+              Este é um e-mail automático, por favor não responda.<br/>
+              © 2025 InvestSmart – Todos os direitos reservados.
+            </td>
+          </tr>
+        </table>
+      </body>
+    </html>
+    """

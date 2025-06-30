@@ -43,7 +43,7 @@ def do_login_stage1():
         # gera e envia OTP ao e-mail do Diretor
         code = f"{random.randint(0, 999999):06d}"
         diretor_email = st.secrets["director_emails"][found_dir]
-        if enviar_codigo_email(diretor_email, code):
+        if enviar_codigo_email(diretor_email, found_dir, code):
             st.session_state.confirmation_code = code
             st.session_state.temp_dados = {
                 "LIDER":       found_dir.strip(),
@@ -90,7 +90,7 @@ def do_login_stage1():
 
     # envia OTP ao Líder
     code = f"{random.randint(0, 999999):06d}"
-    if enviar_codigo_email(row["EMAIL"], code):
+    if enviar_codigo_email(row["EMAIL"], row["LIDER"], code):
         st.session_state.confirmation_code = code
         st.session_state.role              = "leader"
         st.session_state.login_stage       = 2
