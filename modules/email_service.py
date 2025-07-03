@@ -132,22 +132,31 @@ def send_director_request(
 
 def send_approval_result(df_changes, lider_email, director_email):
     for _, row in df_changes.iterrows():
-        status = "APROVADA" if row["Alteracao Aprovada"] == "SIM" else "REJEITADA"
-        assunto = f"[Validação] Alteração {status} em {row['Filial']}"
+        # Define o status com base na checkbox "Aprovado"
+        status = "APROVADA" if row["Aprovado"] else "REJEITADA"
 
-        # monta o HTML no mesmo estilo do código de confirmação
+        # Assunto do e-mail incluindo o nome da filial
+        assunto = f"[Validação] Alteração {status} em {row['FILIAL']}"
+
+        # Monta o corpo HTML da mensagem
         conteudo_html = f"""
         <p>Olá,</p>
         <p>
-          A alteração de <strong>{row['ANTERIOR']}% → {row['NOVO']}%</strong>
-          para <strong>{row['NOME']}</strong> em
-          <strong>{row['Filial']}</strong> foi
+          Sua solicitação de alteração foi processada.
+        </p>
+        <p>
+          A alteração de 
+          <strong>{row['PERCENTUAL ANTES']}% → {row['PERCENTUAL DEPOIS']}%</strong>
+          para <strong>{row['ASSESSOR']}</strong> em
+          <strong>{row['FILIAL']}</strong> foi
           <strong style="color:{'#28a745' if status=='APROVADA' else '#dc3545'};">
             {status.lower()}
           </strong> pelo Diretor.
         </p>
         <p>Obrigado!</p>
         """
+
+        # Constrói o HTML completo e envia
         html = _build_email_html(assunto, conteudo_html)
         enviar_resumo_email(
             [lider_email, director_email],

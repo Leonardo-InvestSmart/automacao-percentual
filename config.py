@@ -1,15 +1,13 @@
 # config.py
 import json
 import streamlit as st
+from supabase import create_client
 
-# 1) Credenciais do Google Sheets (Service Account JSON)
-#    Espera-se que você tenha colado seu JSON em st.secrets["GOOGLE_CLOUD_CREDENTIALS"]
-GOOGLE_SHEETS_CREDENTIALS = json.loads(
-    st.secrets["GOOGLE_CLOUD_CREDENTIALS"]
-)
+# 1) Credenciais do SUPABASE
+SUPABASE_URL = st.secrets["SUPABASE_URL"]
+SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
 
-# 2) ID da planilha
-SPREADSHEET_ID = st.secrets["SPREADSHEET_ID"]
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # 3) Azure / OAuth
 TENANT_ID     = st.secrets["AZURE_TENANT_ID"]

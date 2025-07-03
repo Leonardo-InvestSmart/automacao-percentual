@@ -2,8 +2,7 @@ import streamlit as st
 from PIL import Image
 import os
 import base64
-from modules.gsheet import carregar_dataframe
-
+from modules.db import carregar_filial
 
 def apply_theme():
     st.set_page_config(
@@ -196,7 +195,7 @@ def mostrar_tutorial_inicial():
     st.write("Assista ao vídeo abaixo para aprender a usar a plataforma:")
 
     # 1) lê os bytes
-    with open("assets/Tutorial_2.mp4", "rb") as f:
+    with open("assets/Tutorial_SmartC.mp4", "rb") as f:
         video_bytes = f.read()
 
     # 2) converte para base64
@@ -230,7 +229,7 @@ def pagina_ajuda():
 
     # Vídeo Tutorial embutido via HTML5
     st.subheader("Vídeo Tutorial")
-    with open("assets/Tutorial_2.mp4", "rb") as f:
+    with open("assets/Tutorial_SmartC.mp4", "rb") as f:
         video_bytes = f.read()
     b64 = base64.b64encode(video_bytes).decode()
     video_html = f"""
@@ -342,6 +341,3 @@ def pagina_ajuda():
                 f"**A:** {item['answer']}  \n\n"
                 f"---"
             )
-
-def load_df_with_gif(sheet_name: str):
-    return carregar_dataframe(sheet_name)

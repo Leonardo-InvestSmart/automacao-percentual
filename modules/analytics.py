@@ -13,13 +13,16 @@ def display_analytics(
     filial_lider,
     is_b2c
 ):
-    # — parse de Timestamp com strip e eliminação de linhas inválidas —
-    df_log["Timestamp"] = df_log["Timestamp"].astype(str).str.strip()
+    # — parse de Timestamp, drop de timezone e eliminação de linhas inválidas —
+    df_log["TIMESTAMP"] = df_log["TIMESTAMP"].astype(str).str.strip()
     df_log["DataHora"] = pd.to_datetime(
-        df_log["Timestamp"],
-        dayfirst=True,         # considera dia/mês/ano
+        df_log["TIMESTAMP"],
+        dayfirst=True,
         errors="coerce"
     )
+    # remove o timezone para que fique datetime64[ns] sem tz
+    df_log["DataHora"] = df_log["DataHora"].dt.tz_localize(None)
+
     # remove quaisquer registros sem DataHora válida
     df_log = df_log.dropna(subset=["DataHora"])
 
@@ -56,8 +59,8 @@ def display_analytics(
 
     # — aplica o filtro dinâmico de usuário, filial e período —
     mask = (
-        (df_log["Usuario"].str.upper() == nome_lider.strip().upper()) &
-        (df_log["Filial"].str.upper() == filial_lider.strip().upper()) &
+        (df_log["USUARIO"].str.upper() == nome_lider.strip().upper()) &
+        (df_log["FILIAL"].str.upper() == filial_lider.strip().upper()) &
         (df_log["DataHora"].dt.date >= start_date) &
         (df_log["DataHora"].dt.date <= end_date)
     )
@@ -80,8 +83,8 @@ def display_analytics(
     # — Variação média (%) das alterações no período —
     variacoes = []
     for _, row in df_periodo.iterrows():
-        old = parse_valor_percentual(str(row["Percentual Antes"]))
-        new = parse_valor_percentual(str(row["Percentual Depois"]))
+        old = parse_valor_percentual(str(row["PERCENTUAL ANTES"]))
+        new = parse_valor_percentual(str(row["PERCENTUAL DEPOIS"]))
         if old != 0:
             variacoes.append((new - old) / old * 100)
     variacao_media = sum(variacoes) / len(variacoes) if variacoes else 0
@@ -116,10 +119,10 @@ def display_analytics(
         # agrupa mensalmente e conta as alterações
         df_time = (
             df_periodo
-            .groupby(pd.Grouper(key="DataHora", freq="M"))["Produto"]
+            .groupby(pd.Grouper(key="DataHora", freq="M"))["PRODUTO"]
             .count()
             .reset_index()
-            .rename(columns={"Produto": "Qtd Alterações"})
+            .rename(columns={"PRODUTO": "Qtd Alterações"})
         )
 
         bar = alt.Chart(df_time).mark_bar(

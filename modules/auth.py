@@ -5,7 +5,7 @@ import requests
 import msal
 import time
 
-from modules.gsheet import carregar_dataframe
+from modules.db import carregar_filial
 from modules.email_service import (
     limpar_cpf,
     gerar_senha_personalizada,
@@ -58,10 +58,11 @@ def do_login_stage1():
         return
 
     # 2) Se não for Diretor, tenta como Líder (OTP por e-mail)
-    df_filial_all = carregar_dataframe("Filial")
+    df_filial_all = carregar_filial()
     df_filial_all["CPF_LIDER_CLEAN"] = (
         df_filial_all["CPF"].astype(str).apply(limpar_cpf)
     )
+
     nome_upper = user.upper()
     df_cand = df_filial_all[
         df_filial_all["LIDER"].str.strip().str.upper() == nome_upper
@@ -95,8 +96,7 @@ def do_login_stage1():
         st.session_state.role              = "leader"
         st.session_state.login_stage       = 2
         st.info("Código de confirmação enviado para seu e-mail.")
-        time.sleep(3)       # pausa 3s
-        return              # sai e recarrega na tela de confirmação
+        return
     else:
         st.error("Não foi possível enviar o código de confirmação ao Líder.")
 
