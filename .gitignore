@@ -19,6 +19,3 @@ venv/
 # Credenciais e variáveis de ambiente
 *.json
 .env
-
-# assets grandes que não versionamos
-assets/*.mp4
