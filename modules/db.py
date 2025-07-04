@@ -55,6 +55,7 @@ def inserir_alteracao_log(linhas: list[list]) -> None:
         "PERCENTUAL DEPOIS",
         "VALIDACAO NECESSARIA",
         "ALTERACAO APROVADA",
+        "TIPO", 
     ]
 
     # 2) Busque o maior ID atual para gerar novos IDs sequenciais
@@ -157,7 +158,7 @@ def adicionar_sugestao(texto: str, autor: str) -> None:
       "ID": next_id,
       "SUGESTAO": texto,
       "AUTOR":    autor,
-      "TIMESTAMP": datetime.now().isoformat()
+      "TIMESTAMP": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     }
 
     # 4) Insere no Supabase
@@ -190,7 +191,7 @@ def adicionar_voto(sugestao_id: int, usuario: str) -> None:
     registro = {
       "ID":        sugestao_id,
       "USUARIO":   usuario,
-      "TIMESTAMP": datetime.now().isoformat()
+      "TIMESTAMP": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     }
     try:
         supabase.table("votos").insert(registro).execute()

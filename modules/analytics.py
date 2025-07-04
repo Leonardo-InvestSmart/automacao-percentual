@@ -1,6 +1,7 @@
 import pandas as pd
 import altair as alt
 import streamlit as st
+import textwrap
 
 from modules.formatters import parse_valor_percentual, formatar_para_exibir
 
@@ -17,11 +18,10 @@ def display_analytics(
     df_log["TIMESTAMP"] = df_log["TIMESTAMP"].astype(str).str.strip()
     df_log["DataHora"] = pd.to_datetime(
         df_log["TIMESTAMP"],
-        dayfirst=True,
+        utc=True,            # lê igual "2025-07-04T11:28:16+00:00"
         errors="coerce"
-    )
-    # remove o timezone para que fique datetime64[ns] sem tz
-    df_log["DataHora"] = df_log["DataHora"].dt.tz_localize(None)
+    ).dt.tz_localize(None)
+    df_log = df_log.dropna(subset=["DataHora"])
 
     # remove quaisquer registros sem DataHora válida
     df_log = df_log.dropna(subset=["DataHora"])
@@ -49,6 +49,7 @@ def display_analytics(
             min_value=min_date,
             max_value=max_date
         )
+
 
     # — validação de intervalo e espaçamento abaixo do filtro —
     if end_date < start_date:
@@ -115,6 +116,46 @@ def display_analytics(
 
     st.markdown("---")
 
+        # — Novo: histórico de alterações feitas pelo líder —
+    st.markdown("**Histórico de Alterações de Percentual do Líder**")
+
+    df_hist = df_log.loc[
+        (df_log["USUARIO"].str.upper() == nome_lider.strip().upper()) &
+        (df_log["FILIAL"].str.upper() == filial_lider.strip().upper()),
+        ["DataHora", "ASSESSOR", "PRODUTO", "PERCENTUAL ANTES", "PERCENTUAL DEPOIS", "ALTERACAO APROVADA"]
+    ].copy()
+
+    # formata data e hora
+    df_hist["Data e Hora"] = df_hist["DataHora"].dt.strftime("%d/%m/%Y %H:%M:%S")
+
+    # mapeia aprovação:
+    df_hist["Aprovação do Diretor"] = df_hist.apply(
+        lambda row: (
+            "Não foi necessário"
+            if row["ALTERACAO APROVADA"] == "NAO" and
+            parse_valor_percentual(str(row["PERCENTUAL DEPOIS"])) >=
+            parse_valor_percentual(str(row["PERCENTUAL ANTES"]))
+            else ("Aprovado" if row["ALTERACAO APROVADA"] == "SIM" else "Recusado")
+        ),
+        axis=1
+    )
+
+    # reorganiza e renomeia colunas
+    df_hist = df_hist[[
+        "Data e Hora", "ASSESSOR", "PRODUTO",
+        "PERCENTUAL ANTES", "PERCENTUAL DEPOIS", "Aprovação do Diretor"
+    ]]
+    df_hist.columns = [
+        "Data e Hora", "Nome do Assessor", "Produto",
+        "Percentual Antes", "Percentual Depois", "Aprovação do Diretor"
+    ]
+
+    st.dataframe(df_hist, use_container_width=True, hide_index=True)
+
+    st.markdown("---")
+
+    st.markdown("**Alterações por Mês**")
+
     if not df_periodo.empty:
         # agrupa mensalmente e conta as alterações
         df_time = (
@@ -125,61 +166,37 @@ def display_analytics(
             .rename(columns={"PRODUTO": "Qtd Alterações"})
         )
 
-        bar = alt.Chart(df_time).mark_bar(
-            color="black",
-            size=60  # ajusta a largura da barra
-        ).encode(
-            x=alt.X(
-                "DataHora:T",
-                title="Mês",
-                axis=alt.Axis(format="%b %Y")
-            ),
-            y=alt.Y("Qtd Alterações:Q", title="Alterações")
-        )
-
-        # texto no topo das barras
-        text = alt.Chart(df_time).mark_text(
-            dy=-12, # altura da barra
-            color="black",
-            fontSize=16 # tamanho da fonte
-        ).encode(
-            x=alt.X("DataHora:T", axis=alt.Axis(format="%b %Y")),
-            y=alt.Y("Qtd Alterações:Q"),
-            text=alt.Text("Qtd Alterações:Q")
-        )
-
-        # sobrepõe barra + texto e adiciona título
-        chart_time = (
-            (bar + text)
-            .properties(
-                height=280, # altura do gráfico
-                title="Alterações por Mês"
+        # — barras com largura fixa e tooltip igual ao gráfico de produto —
+        bar_time = (
+            alt.Chart(df_time)
+            .mark_bar(color="black", size=60)  # força largura de 600px
+            .encode(
+                x=alt.X("DataHora:T", title="Mês", axis=alt.Axis(format="%b %Y")),
+                y=alt.Y("Qtd Alterações:Q", title="Alterações"),
+                tooltip=["Qtd Alterações"]
             )
+        )
+
+        # texto no topo da barra
+        text_time = (
+            alt.Chart(df_time)
+            .mark_text(dy=-8, fontSize=14)
+            .encode(
+                x=alt.X("DataHora:T", axis=alt.Axis(format="%b %Y")),
+                y=alt.Y("Qtd Alterações:Q"),
+                text=alt.Text("Qtd Alterações:Q")
+            )
+        )
+
+        chart_time = (
+            (bar_time + text_time)
+            .properties(height=300)
         )
 
         st.altair_chart(chart_time, use_container_width=True)
 
 
-
-
-    df_medias = pd.DataFrame({
-        "Produto": col_perc,
-        "Média (%)": [
-            df_assessores_filial[c].apply(parse_valor_percentual).mean() * 100
-            for c in col_perc
-        ]
-    })
-    chart_prod = (
-        alt.Chart(df_medias)
-        .mark_bar()
-        .encode(
-            x=alt.X("Produto:N", sort="-y"),
-            y=alt.Y("Média (%):Q", title="Média (%)"),
-            tooltip=["Produto", "Média (%)"]
-        )
-        .properties(height=300)
-    )
-    st.altair_chart(chart_prod, use_container_width=True)
+    st.markdown("---")
 
     st.markdown("**Média de percentual por assessor**")
     df_ass_med = pd.DataFrame([
@@ -190,6 +207,51 @@ def display_analytics(
         for _, row in df_assessores_filial.iterrows()
     ])
     st.dataframe(df_ass_med, use_container_width=True)
+
+    st.markdown("---")
+
+    st.markdown("**Média (%) por Produto**")
+
+    df_medias = pd.DataFrame({
+        "Produto": col_perc,
+        "Média (%)": [
+            df_assessores_filial[c].apply(parse_valor_percentual).mean() * 100
+            for c in col_perc
+        ]
+    })
+    bar_prod = (
+        alt.Chart(df_medias)
+        .mark_bar(color="black")
+        .encode(
+            x=alt.X("Produto:N", sort="-y", title="Produto"),
+            y=alt.Y("Média (%):Q", title="Média (%)"),
+            tooltip=["Produto", "Média (%)"]
+        )
+    )
+
+    # texto com valor no topo
+    text_prod = (
+        alt.Chart(df_medias)
+        .mark_text(
+            dy=-8,        # posiciona acima da barra
+            fontSize=14
+        )
+        .encode(
+            x=alt.X("Produto:N", sort="-y"),
+            y=alt.Y("Média (%):Q"),
+            text=alt.Text("Média (%):Q", format=".1f")
+        )
+    )
+
+    # combina e define altura
+    chart_prod = (
+        (bar_prod + text_prod)
+        .properties(height=300)
+    )
+
+    st.altair_chart(chart_prod, use_container_width=True)
+
+    st.markdown("---")
 
     st.markdown("**Teto de percentuais da filial**")
     if is_b2c:
@@ -202,6 +264,14 @@ def display_analytics(
         }
         cols = st.columns(len(col_perc))
         for c, col_widget in zip(col_perc, cols):
-            col_widget.metric(c, teto_display[c])
+            # quebra em linhas de até 12 caracteres
+            label = "\n".join(textwrap.wrap(c, width=12))
+            col_widget.metric(label, teto_display[c])
+
+        # use <hr> customizado para controlar margens
+        st.markdown(
+            "<hr style='margin-top:0.5rem; margin-bottom:1rem;'/>",
+            unsafe_allow_html=True
+        )
 
     st.markdown("---")

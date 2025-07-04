@@ -4,7 +4,7 @@ from datetime import datetime
 from collections import defaultdict
 import random
 from streamlit import column_config
-from httpx import RemoteProtocolError
+import httpx
 
 from config import *
 from modules.ui_helpers import (
@@ -66,12 +66,18 @@ def main():
         mostrar_tutorial_inicial()
         return
 
-    # — Carrega dados do Google Sheets —
-    
-    df_filial     = carregar_filial()
-    df_assessores = carregar_assessores()
-    df_log        = carregar_alteracoes()
-
+    # 1) tente carregar tudo do banco…
+    try:
+        df_filial     = carregar_filial()
+        df_assessores = carregar_assessores()
+        df_log        = carregar_alteracoes()
+    except httpx.RemoteProtocolError:
+        # 2) mostre erro amigável e pare o app sem stack-trace
+        st.error(
+            "Tivemos um erro inesperado na conexão. "
+            "Por favor, reinicie o aplicativo."
+        )
+        st.stop()
 
     # — Define colunas fixas e percentuais —
     cols_fixos = ["SIGLA", "CPF", "NOME", "EMAIL", "FILIAL", "FUNCAO"]
@@ -219,16 +225,19 @@ def main():
         for p in col_perc:
             df_ass_filial[p] = df_ass_filial[p].apply(formatar_para_exibir)
 
-        # 1) define as colunas fixas sem CPF e EMAIL, mas *com* ID
-        fixed = [c for c in cols_fixos if c not in ["CPF", "EMAIL"]] + ["ID"]
+        # (A) REMOVA A COLUNA ID do DataFrame de uma vez por todas
+        df_ass_filial = df_ass_filial.drop(columns=["ID"], errors="ignore")
 
-        # 2) define apenas os percentuais (idem)
-        percent = [p for p in col_perc if p != "ID"]
+        # (B) defina fixed SEM mencionar ID
+        fixed = [c for c in cols_fixos if c not in ["CPF", "EMAIL", "ID"]]
 
-        # 3) junta as duas listas
+        # (C) use col_perc inteiro — ele já não contém "ID"
+        percent = col_perc.copy()
+
+        # (D) monte display_cols sem ID
         display_cols = fixed + percent
 
-        # e no DataFrame inicial:
+        # (E) copie só as colunas que você quer mostrar
         df_editor_initial = df_ass_filial[display_cols].copy()
 
         # inicializa ou reseta o estado atual do editor
@@ -250,7 +259,7 @@ def main():
 
         with btn_salvar:
             if st.button("💾 Salvar alterações", key="salvar"):
-                agora = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+                agora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 alteracoes, erros_teto = [], []
 
                 # —— Alinha índices para evitar KeyError —— 
@@ -262,21 +271,39 @@ def main():
                     nova = df_new.loc[i]
                     nome_ass = nova["NOME"]
                     for p in col_perc:
-                        old = str(df_initial.at[i, p]).strip()            # usa posição i
+                        old = str(df_initial.at[i, p]).strip()
                         new = str(nova[p]).strip()
                         if old != new:
                             new_f  = parse_valor_percentual(new)
                             teto_f = parse_valor_percentual(str(teto_row[p]).strip())
+
                             if new_f > teto_f:
                                 erros_teto.append(
                                     f"- {p} de {nome_ass} ({new}%) excede o teto de {teto_row[p]}%."
                                 )
                             else:
+                                # ── NOVO: checa se já existe pedido pendente para este líder/assessor/produto
+                                pend = df_log[
+                                    (df_log["USUARIO"].str.strip().str.upper() == nome_usuario.strip().upper()) &
+                                    (df_log["FILIAL"].str.strip().str.upper() == selected_filial.strip().upper()) &
+                                    (df_log["ASSESSOR"] == nome_ass) &
+                                    (df_log["PRODUTO"] == p) &
+                                    (df_log["VALIDACAO NECESSARIA"] == "SIM") &
+                                    (df_log["ALTERACAO APROVADA"] == "NAO")
+                                ]
+                                if not pend.empty:
+                                    st.error(
+                                        f"O percentual **{p}** de **{nome_ass}** "
+                                        "já está em análise pelo Diretor e não pode ser alterado."
+                                    )
+                                    continue  # pula somente esta alteração
+                                # ── Fim da checagem de pendência
+
                                 alteracoes.append({
                                     "NOME":     nome_ass,
                                     "PRODUTO":  p,
                                     "PERCENTUAL ANTES": old,
-                                    "PERCENTUAL DEPOIS":     new
+                                    "PERCENTUAL DEPOIS": new
                                 })
 
                 if erros_teto:
@@ -330,22 +357,27 @@ def main():
                     st.error("Código inválido. Tente novamente.")
                     return
 
-                # 2) grava no log de Alterações (todas as alterações)
-                linhas = [
-                    [
+                # 2) grava no log de Alterações (todas as alterações), agora com TIPO
+                linhas = []
+                for a in st.session_state.pending_alteracoes:
+                    before = a["PERCENTUAL ANTES"]
+                    after  = a["PERCENTUAL DEPOIS"]
+                    is_reducao = parse_valor_percentual(after) < parse_valor_percentual(before)
+                    validacao = "SIM" if is_reducao else "NAO"
+                    tipo      = "REDUCAO" if is_reducao else "AUMENTO"
+
+                    linhas.append([
                         st.session_state.pending_agora,
                         nome_usuario,
-                        st.session_state.pending_selected_filial,
+                        selected_filial,
                         a["NOME"],
                         a["PRODUTO"],
-                        a["PERCENTUAL ANTES"],
-                        a["PERCENTUAL DEPOIS"],
-                        # só “SIM” se for redução
-                        "SIM" if parse_valor_percentual(a["PERCENTUAL DEPOIS"]) < parse_valor_percentual(a["PERCENTUAL ANTES"]) else "NAO",
-                        "NAO"  # ainda não aprovado
-                    ]
-                    for a in st.session_state.pending_alteracoes
-                ]
+                        before,
+                        after,
+                        validacao,
+                        "NAO",     # ALTERACAO APROVADA
+                        tipo       # ← novo campo TIPO
+                    ])
                 inserir_alteracao_log(linhas)
 
                 # 3) separa reduções de não-reduções
@@ -512,14 +544,14 @@ def main():
         pagina_ajuda()
 
     elif pagina == "Sugestão de Melhoria":
-        st.subheader("💡 Sugestão de Melhoria")
+        st.markdown("### Deixe sua sugestão de melhoria")
         user = nome_usuario  # já inicializado no topo do app
 
         # ── 1) Envio de novas sugestões (com reload automático) ──
         if "suggestion_sent" not in st.session_state:
             st.session_state["suggestion_sent"] = False
 
-        nova = st.text_area("Digite sua sugestão de melhoria")
+        nova = st.text_area("Escreva abaixo:")
         if not st.session_state["suggestion_sent"]:
             if st.button("Enviar sugestão"):
                 if nova.strip():
@@ -536,7 +568,7 @@ def main():
         options     = [s["SUGESTAO"] for s in suggestions]
 
         if not usuario_votou_mes(user):
-            st.markdown("### 🗳️ Vote na sua sugestão favorita")
+            st.markdown("### Vote na sua sugestão favorita")
             selected_idx = st.radio(
                 "Escolha uma opção:",
                 list(range(len(options))),
@@ -587,11 +619,19 @@ def main():
     elif pagina == "Validação":
         st.subheader("Pendências de Validação")
         df_alt = carregar_alteracoes()
+
+        # Exibe só os registros pendentes: redução solicitada, ainda não aprovada,
+        # na filial certa, e que NÃO tenham recebido comentário do Diretor
         df_pend = df_alt[
             (df_alt["VALIDACAO NECESSARIA"] == "SIM")
             & (df_alt["ALTERACAO APROVADA"] == "NAO")
+            & (df_alt["TIPO"]                == "REDUCAO")  # ← só reduções
             & (df_alt["FILIAL"].astype(str).str.strip().str.upper()
             == selected_filial.strip().upper())
+            & (
+                df_alt["COMENTARIO DIRETOR"].isna()
+                | (df_alt["COMENTARIO DIRETOR"].str.strip() == "")
+            )
         ]
 
         # ── Diretor ──
@@ -602,9 +642,14 @@ def main():
                 df_pend = df_pend.copy()
 
                 # 1️⃣ formata TIMESTAMP para “dd/mm/YYYY às HH:MM”
-                df_pend["TIMESTAMP"] = (
-                    pd.to_datetime(df_pend["TIMESTAMP"].str.slice(0,19), dayfirst=True)
-                    .dt.strftime("%d/%m/%Y às %H:%M")
+                df_pend["Data e Hora"] = (
+                    pd.to_datetime(
+                        df_pend["TIMESTAMP"],
+                        utc=True,            # aceita ISO-strings com offset
+                        errors="coerce"
+                    )
+                    .dt.tz_localize(None)                # remove informação de fuso
+                    .dt.strftime("%d/%m/%Y às %H:%M")    # formata para exibição
                 )
                 df_pend["Aprovado"] = False
                 df_pend["Recusado"] = False
@@ -663,16 +708,25 @@ def main():
 
                     # 2) Se passou na validação, atualiza planilha Alterações
                     for _, row in df_edit.iterrows():
-                        log_id = int(row["ID"])     # USAR O ID real
+                        log_id = int(row["ID"])
+
+                        # 1) marca aprovação ou recusa
                         atualizar_alteracao_log(
                             row_id=log_id,
                             coluna="ALTERACAO APROVADA",
                             valor="SIM" if row["Aprovado"] else "NAO"
                         )
+                        # 2) anota o comentário do Diretor
                         atualizar_alteracao_log(
                             row_id=log_id,
                             coluna="COMENTARIO DIRETOR",
                             valor=row["COMENTARIO DIRETOR"]
+                        )
+                        # 3) sinaliza que já não precisa mais de validação
+                        atualizar_alteracao_log(
+                            row_id=log_id,
+                            coluna="VALIDACAO NECESSARIA",
+                            valor="NAO"
                         )
 
                     lider_email = st.session_state.dados_lider["EMAIL_LIDER"]
@@ -751,6 +805,10 @@ def main():
                     st.success(
                         f"{len(aprovados)} aprovação(ões) e {len(recusados)} recusa(s) registradas!"
                     )
+                    st.session_state.last_filial = None
+
+                    st.session_state["refresh_validation"] = not st.session_state.get("refresh_validation", False)
+
 
         # ── Líder ──
         else:
@@ -760,7 +818,12 @@ def main():
                 df_leader = df_pend.copy()
                 # 1. Converte e formata a coluna de timestamp  
                 df_leader["Data e Hora"] = (
-                    pd.to_datetime(df_leader["TIMESTAMP"].str.slice(0,19), dayfirst=True)
+                    pd.to_datetime(
+                        df_leader["TIMESTAMP"],
+                        utc=True,
+                        errors="coerce"
+                    )
+                    .dt.tz_localize(None)
                     .dt.strftime("%d/%m/%Y às %H:%M")
                 )
 
