@@ -273,5 +273,3 @@ def display_analytics(
             "<hr style='margin-top:0.5rem; margin-bottom:1rem;'/>",
             unsafe_allow_html=True
         )
-
-    st.markdown("---")
