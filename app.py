@@ -39,6 +39,18 @@ from modules.db import (
   supabase
 )
 
+@st.cache_data(show_spinner=False)
+def get_filiais():
+    return carregar_filial()
+
+@st.cache_data(show_spinner=False)
+def get_assessores():
+    return carregar_assessores()
+
+@st.cache_data(show_spinner=False)
+def get_log():
+    return carregar_alteracoes()
+
 def main():
     # — Tema e CSS global e sidebar —
     apply_theme()
@@ -68,9 +80,9 @@ def main():
 
     # 1) tente carregar tudo do banco…
     try:
-        df_filial     = carregar_filial()
-        df_assessores = carregar_assessores()
-        df_log        = carregar_alteracoes()
+        df_filial     = get_filiais()
+        df_assessores = get_assessores()
+        df_log        = get_log()
     except httpx.RemoteProtocolError:
         # 2) mostre erro amigável e pare o app sem stack-trace
         st.error(
@@ -205,7 +217,6 @@ def main():
         teto_row = df_filial_lider[
             df_filial_lider["FILIAL"].str.strip().str.upper() == selected_filial.strip().upper()
         ].iloc[0]
-        # monta um DataFrame só com FILIAL + col_perc, sem DIRETOR
         df_teto = pd.DataFrame([{
             "FILIAL": teto_row["FILIAL"],
             **{
@@ -221,141 +232,126 @@ def main():
         df_ass_filial = df_assessores[
             df_assessores["FILIAL"].str.strip().str.upper() == selected_filial.strip().upper()
         ].copy()
-        # aplica formatação de exibição
         for p in col_perc:
             df_ass_filial[p] = df_ass_filial[p].apply(formatar_para_exibir)
 
-        # (A) REMOVA A COLUNA ID do DataFrame de uma vez por todas
         df_ass_filial = df_ass_filial.drop(columns=["ID"], errors="ignore")
-
-        # (B) defina fixed SEM mencionar ID
-        fixed = [c for c in cols_fixos if c not in ["CPF", "EMAIL", "ID"]]
-
-        # (C) use col_perc inteiro — ele já não contém "ID"
-        percent = col_perc.copy()
-
-        # (D) monte display_cols sem ID
+        fixed       = [c for c in cols_fixos if c not in ["CPF", "EMAIL", "ID"]]
+        percent     = col_perc.copy()
         display_cols = fixed + percent
-
-        # (E) copie só as colunas que você quer mostrar
         df_editor_initial = df_ass_filial[display_cols].copy()
 
-        # inicializa ou reseta o estado atual do editor
         if ("last_filial" not in st.session_state
             or st.session_state.last_filial != selected_filial):
-            st.session_state.last_filial   = selected_filial
-            st.session_state.df_current    = df_editor_initial.copy()
+            st.session_state.last_filial = selected_filial
+            st.session_state.df_current  = df_editor_initial.copy()
 
-        # exibe o editor com só as colunas de percentuais editáveis
-        disabled = [c for c in display_cols if c not in col_perc]
-        df_edited = mostrar_data_editor(
-            st.session_state.df_current,
-            disabled_cols=disabled
-        )
-        st.session_state.df_current = df_edited
+        # 3) Editor dentro de um form: só reruna ao submeter
+        with st.form("percentual_form"):
+            disabled = [c for c in display_cols if c not in col_perc]
+            df_edited = mostrar_data_editor(
+                st.session_state.df_current,
+                disabled_cols=disabled
+            )
+            st.session_state.df_current = df_edited
 
-        # 3) Botões Salvar / Limpar
-        btn_salvar, btn_reset_all = st.columns(2)
+            submitted = st.form_submit_button("💾 Salvar alterações")
+            reset_all = st.form_submit_button("🧹 Limpar Alterações")
 
-        with btn_salvar:
-            if st.button("💾 Salvar alterações", key="salvar"):
-                agora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                alteracoes, erros_teto = [], []
+        # 4) Ao clicar em Salvar alterações
+        if submitted:
+            agora, alteracoes, erros_teto = (
+                datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                [],
+                []
+            )
+            df_initial = df_editor_initial.reset_index(drop=True)
+            df_new     = st.session_state.df_current.reset_index(drop=True)
 
-                # —— Alinha índices para evitar KeyError —— 
-                df_initial = df_editor_initial.reset_index(drop=True)
-                df_new     = df_edited.reset_index(drop=True)
-
-                # validações de teto e coleta de alterações
-                for i in range(len(df_new)):
-                    nova = df_new.loc[i]
-                    nome_ass = nova["NOME"]
-                    for p in col_perc:
-                        old = str(df_initial.at[i, p]).strip()
-                        new = str(nova[p]).strip()
-                        if old != new:
-                            new_f  = parse_valor_percentual(new)
-                            teto_f = parse_valor_percentual(str(teto_row[p]).strip())
-
-                            if new_f > teto_f:
-                                erros_teto.append(
-                                    f"- {p} de {nome_ass} ({new}%) excede o teto de {teto_row[p]}%."
+            for i in range(len(df_new)):
+                nova     = df_new.loc[i]
+                nome_ass = nova["NOME"]
+                for p in col_perc:
+                    old = str(df_initial.at[i, p]).strip()
+                    new = str(nova[p]).strip()
+                    if old != new:
+                        new_f  = parse_valor_percentual(new)
+                        teto_f = parse_valor_percentual(str(teto_row[p]).strip())
+                        if new_f > teto_f:
+                            erros_teto.append(
+                                f"- {p} de {nome_ass} ({new}%) excede o teto de {teto_row[p]}%."
+                            )
+                        else:
+                            pend = df_log[
+                                (df_log["USUARIO"].str.upper() == nome_usuario.strip().upper()) &
+                                (df_log["FILIAL"].str.upper() == selected_filial.strip().upper()) &
+                                (df_log["ASSESSOR"] == nome_ass) &
+                                (df_log["PRODUTO"] == p) &
+                                (df_log["VALIDACAO NECESSARIA"] == "SIM") &
+                                (df_log["ALTERACAO APROVADA"] == "NAO")
+                            ]
+                            if not pend.empty:
+                                st.error(
+                                    f"O percentual **{p}** de **{nome_ass}** "
+                                    "já está em análise pelo Diretor e não pode ser alterado."
                                 )
-                            else:
-                                # ── NOVO: checa se já existe pedido pendente para este líder/assessor/produto
-                                pend = df_log[
-                                    (df_log["USUARIO"].str.strip().str.upper() == nome_usuario.strip().upper()) &
-                                    (df_log["FILIAL"].str.strip().str.upper() == selected_filial.strip().upper()) &
-                                    (df_log["ASSESSOR"] == nome_ass) &
-                                    (df_log["PRODUTO"] == p) &
-                                    (df_log["VALIDACAO NECESSARIA"] == "SIM") &
-                                    (df_log["ALTERACAO APROVADA"] == "NAO")
-                                ]
-                                if not pend.empty:
-                                    st.error(
-                                        f"O percentual **{p}** de **{nome_ass}** "
-                                        "já está em análise pelo Diretor e não pode ser alterado."
-                                    )
-                                    continue  # pula somente esta alteração
-                                # ── Fim da checagem de pendência
+                                continue
+                            alteracoes.append({
+                                "NOME":              nome_ass,
+                                "PRODUTO":           p,
+                                "PERCENTUAL ANTES":  old,
+                                "PERCENTUAL DEPOIS": new
+                            })
 
-                                alteracoes.append({
-                                    "NOME":     nome_ass,
-                                    "PRODUTO":  p,
-                                    "PERCENTUAL ANTES": old,
-                                    "PERCENTUAL DEPOIS": new
-                                })
+            if erros_teto:
+                st.session_state.show_limpar_erros = True
+                st.error("⚠️ Algumas alterações não foram salvas:\n" + "\n".join(erros_teto))
+                st.info("Ajuste os valores e tente novamente.")
+            elif not alteracoes:
+                st.info("Nenhuma alteração detectada.")
+            else:
+                st.session_state.pending_alteracoes      = alteracoes
+                st.session_state.pending_agora           = agora
+                st.session_state.pending_selected_filial = selected_filial
+                code = f"{random.randint(0,999999):06d}"
+                st.session_state.verification_code      = code
+                enviar_codigo_email(
+                    st.session_state.dados_lider["EMAIL_LIDER"],
+                    nome_usuario,
+                    code
+                )
+                st.session_state.awaiting_verification = True
+                st.info("Para prosseguir, insira o código enviado ao seu e-mail.")
 
-                if erros_teto:
-                    st.session_state.show_limpar_erros = True
-                    st.error("⚠️ Algumas alterações não foram salvas:\n" + "\n".join(erros_teto))
-                    st.info("Ajuste os valores e tente novamente.")
-                elif not alteracoes:
-                    st.info("Nenhuma alteração detectada.")
-                else:
-                    # dispara código de verificação (fase 1)
-                    if not st.session_state.awaiting_verification:
-                        st.session_state.pending_alteracoes      = alteracoes
-                        st.session_state.pending_agora           = agora
-                        st.session_state.pending_selected_filial = selected_filial
-                        code = f"{random.randint(0,999999):06d}"
-                        st.session_state.verification_code      = code
-                        enviar_codigo_email(
-                            st.session_state.dados_lider["EMAIL_LIDER"],
-                            nome_usuario,
-                            code
-                        )
-                        st.session_state.awaiting_verification = True
-                        st.info("Para prosseguir, insira o código enviado ao seu e-mail.")
+        # 5) Ao clicar em Limpar Alterações
+        if reset_all:
+            st.session_state.df_current        = df_editor_initial.copy()
+            st.session_state.show_limpar_erros = False
 
-        with btn_reset_all:
-            if st.button("🧹 Limpar Alterações", key="limpar_tudo"):
-                st.session_state.df_current        = df_editor_initial.copy()
-                st.session_state.show_limpar_erros = False
-
-        # 4) Fase 2: confirmação do código e aplicação
+        # 6) Fase 2: confirmação do código
         if st.session_state.awaiting_verification:
-            # lista só as reduções
             pendencias = [
                 f"{a['PRODUTO']} de {a['PERCENTUAL ANTES']} → {a['PERCENTUAL DEPOIS']}"
                 for a in st.session_state.pending_alteracoes
-                if parse_valor_percentual(a["PERCENTUAL DEPOIS"]) < parse_valor_percentual(a["PERCENTUAL ANTES"])
+                if parse_valor_percentual(a["PERCENTUAL DEPOIS"]) <
+                parse_valor_percentual(a["PERCENTUAL ANTES"])
             ]
             if pendencias:
                 st.warning(
                     f"Esse tipo de alteração {'; '.join(pendencias)} "
-                    "precisa de aprovação do seu Diretor, por ser uma redução de percentual. "
-                    "Prossiga com o código e aguarde a confirmação da alteração."
+                    "precisa de aprovação do seu Diretor."
                 )
             codigo_input = st.text_input(
-                "Código de verificação", type="password", max_chars=6, key="confirm_code"
+                "Código de verificação",
+                type="password",
+                max_chars=6,
+                key="confirm_code"
             )
-
             if st.button("Confirmar código", key="confirmar_verif"):
-                # 1) valida OTP
                 if codigo_input != st.session_state.verification_code:
                     st.error("Código inválido. Tente novamente.")
                     return
+
 
                 # 2) grava no log de Alterações (todas as alterações), agora com TIPO
                 linhas = []
