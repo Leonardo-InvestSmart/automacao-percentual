@@ -150,7 +150,7 @@ def send_approval_result(df_changes, lider_email, director_email):
           para <strong>{row['ASSESSOR']}</strong> em
           <strong>{row['FILIAL']}</strong> foi
           <strong style="color:{'#28a745' if status=='APROVADA' else '#dc3545'};">
-            {status.lower()}
+            {status}
           </strong> pelo Diretor.
         </p>
         <p>Obrigado!</p>
