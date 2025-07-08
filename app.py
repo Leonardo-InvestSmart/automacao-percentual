@@ -449,7 +449,7 @@ def main():
                             continue
 
                     # 5a) envia resumo por e-mail ao Líder (HTML)
-                    subj_l = f"[Líder] Resumo de alterações em {selected_filial}"
+                    subj_l = f"Resumo de alterações em {selected_filial}"
                     lista_html = "".join(
                         f"<li>{x['NOME']}: {x['PRODUTO']} de {x['PERCENTUAL ANTES']}% → {x['PERCENTUAL DEPOIS']}%</li>"
                         for x in nao_reducoes
@@ -486,7 +486,7 @@ def main():
                             continue  # se não encontrar, pula este assessor
                         email_a = df_sel["EMAIL"].iloc[0]
 
-                        subj_a  = f"[Você] Resumo de alterações em {selected_filial}"
+                        subj_a  = f"Resumo de alterações em {selected_filial}"
                         lista_html_a = "".join(
                             f"<li>{y['PRODUTO']}: {y['PERCENTUAL ANTES']}% → {y['PERCENTUAL DEPOIS']}%</li>"
                             for y in alts
@@ -729,7 +729,7 @@ def main():
 
                     # envia email de recusa
                     for _, row in recusados.iterrows():
-                        assunto = f"[Validação] Redução recusada em {selected_filial}"
+                        assunto = f"Redução recusada em {selected_filial}"
                         conteudo_html_r = f"""
                         <p>Olá {row['USUARIO']},</p>
                         <p>

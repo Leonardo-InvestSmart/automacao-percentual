@@ -109,7 +109,7 @@ def send_director_request(
     Envia ao Diretor um pedido de validação de redução, com botão e layout da marca.
     Utiliza o mesmo helper (enviar_resumo_email) para garantir autenticação e envio.
     """
-    assunto = f"[Diretor] Validação de redução em {filial}"
+    assunto = f"Validação de redução em {filial}"
     conteudo_html = f"""
     <p>Olá,</p>
     <p>O líder <strong>{lider}</strong> solicitou redução do produto <strong>{produto}</strong><br/>
@@ -136,7 +136,7 @@ def send_approval_result(df_changes, lider_email, director_email):
         status = "APROVADA" if row["Aprovado"] else "REJEITADA"
 
         # Assunto do e-mail incluindo o nome da filial
-        assunto = f"[Validação] Alteração {status} em {row['FILIAL']}"
+        assunto = f"Alteração {status} em {row['FILIAL']}"
 
         # Monta o corpo HTML da mensagem
         conteudo_html = f"""
