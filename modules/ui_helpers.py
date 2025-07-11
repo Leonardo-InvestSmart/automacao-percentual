@@ -215,10 +215,12 @@ def mostrar_tutorial_inicial():
     st.write("---")
     st.subheader("Visão Geral das Funcionalidades")
     st.markdown("""
-    - **Gestão de Percentuais:** Ajuste de taxas de cada assessor   
+    - **Gestão de Percentuais:** Ajuste de percentuais de cada assessor   
     - **Validação:** Diretores aprovam as reduções de percentuais solicitadas pelos líderes
     - **Painel Analítico:** Métricas e gráficos da interação com a plataforma
-    - **Ajuda e FAQ:** Ajuda rápida em vídeo e respostas às dúvidas mais comuns            
+    - **Sugestão de Melhoria:** Envie sugestões de melhorias para a plataforma 
+    - **Ajuda e FAQ:** Ajuda rápida em vídeo e respostas às dúvidas mais comuns
+    - **Spoiler BeSmart:** Página em construção          
     """)
     if st.button("Entendi, continuar"):
         st.session_state.first_login = False
