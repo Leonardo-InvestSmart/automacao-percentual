@@ -109,7 +109,7 @@ def display_analytics(
 
     for col, label, value in zip(cols, labels, values):
         col.markdown(
-            f"<div style='font-size:15px; font-weight:bold; margin-bottom:4px;'>{label}</div>"
+            f"<div style='font-size:17px; font-weight:bold; margin-bottom:4px;'>{label}</div>"
             f"<div style='font-size:28px; color:#111;'>{value}</div>",
             unsafe_allow_html=True
         )

@@ -5,6 +5,7 @@ from collections import defaultdict
 import random
 from streamlit import column_config
 import httpx
+import random
 
 from config import *
 from modules.ui_helpers import (
@@ -38,6 +39,19 @@ from modules.db import (
   adicionar_voto,
   supabase
 )
+
+gif_urls = [
+    "https://i.gifer.com/6md.gif",
+    "https://i.gifer.com/yH.gif",
+    "https://i.gifer.com/xw.gif",
+    "https://i.gifer.com/XOsX.gif",
+    "https://i.gifer.com/ZIb4.gif",
+    "https://i.gifer.com/14Um.gif",
+    "https://i.gifer.com/xt.gif",
+    "https://i.gifer.com/VIjf.gif",
+    "https://i.gifer.com/bfR.gif",
+    "https://i.gifer.com/6ov.gif",
+]
 
 @st.cache_data(show_spinner=False)
 def get_filiais():
@@ -126,7 +140,8 @@ def main():
         "Validação",
         "Painel Analítico",
         "Sugestão de Melhoria",
-        "Ajuda e FAQ"
+        "Ajuda e FAQ",
+        "Spoiler BeSmart (Em Construção)"
     ]
     if "pagina" not in st.session_state:
         st.session_state.pagina = pages[0]
@@ -163,11 +178,12 @@ def main():
 
     # — Título dinâmico no topo da área principal —
     page_icons = {
-        "Gestão de Percentuais": "💼",
+        "Gestão de Percentuais":  "💼",
         "Painel Analítico":       "📊",
         "Validação":              "✅",
-        "Sugestão de Melhoria":  "💡",
-        "Ajuda e FAQ":           "❓"
+        "Sugestão de Melhoria":   "💡",
+        "Ajuda e FAQ":            "❓",
+        "Spoiler BeSmart (Em Construção)":        "📢"
     }
     icon = page_icons.get(pagina, "")
     st.markdown(
@@ -260,68 +276,78 @@ def main():
 
         # 4) Ao clicar em Salvar alterações
         if submitted:
-            agora, alteracoes, erros_teto = (
-                datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                [],
-                []
-            )
-            df_initial = df_editor_initial.reset_index(drop=True)
-            df_new     = st.session_state.df_current.reset_index(drop=True)
+            gif_placeholder = st.empty()
+            try:
+                gif_choice = random.choice(gif_urls)
+                gif_placeholder.image(gif_choice, width=90)
 
-            for i in range(len(df_new)):
-                nova     = df_new.loc[i]
-                nome_ass = nova["NOME"]
-                for p in col_perc:
-                    old = str(df_initial.at[i, p]).strip()
-                    new = str(nova[p]).strip()
-                    if old != new:
-                        new_f  = parse_valor_percentual(new)
-                        teto_f = parse_valor_percentual(str(teto_row[p]).strip())
-                        if new_f > teto_f:
-                            erros_teto.append(
-                                f"- {p} de {nome_ass} ({new}%) excede o teto de {teto_row[p]}%."
-                            )
-                        else:
-                            pend = df_log[
-                                (df_log["USUARIO"].str.upper() == nome_usuario.strip().upper()) &
-                                (df_log["FILIAL"].str.upper() == selected_filial.strip().upper()) &
-                                (df_log["ASSESSOR"] == nome_ass) &
-                                (df_log["PRODUTO"] == p) &
-                                (df_log["VALIDACAO NECESSARIA"] == "SIM") &
-                                (df_log["ALTERACAO APROVADA"] == "NAO")
-                            ]
-                            if not pend.empty:
-                                st.error(
-                                    f"O percentual **{p}** de **{nome_ass}** "
-                                    "já está em análise pelo Diretor e não pode ser alterado."
-                                )
-                                continue
-                            alteracoes.append({
-                                "NOME":              nome_ass,
-                                "PRODUTO":           p,
-                                "PERCENTUAL ANTES":  old,
-                                "PERCENTUAL DEPOIS": new
-                            })
-
-            if erros_teto:
-                st.session_state.show_limpar_erros = True
-                st.error("⚠️ Algumas alterações não foram salvas:\n" + "\n".join(erros_teto))
-                st.info("Ajuste os valores e tente novamente.")
-            elif not alteracoes:
-                st.info("Nenhuma alteração detectada.")
-            else:
-                st.session_state.pending_alteracoes      = alteracoes
-                st.session_state.pending_agora           = agora
-                st.session_state.pending_selected_filial = selected_filial
-                code = f"{random.randint(0,999999):06d}"
-                st.session_state.verification_code      = code
-                enviar_codigo_email(
-                    st.session_state.dados_lider["EMAIL_LIDER"],
-                    nome_usuario,
-                    code
+                agora, alteracoes, erros_teto = (
+                    datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    [],
+                    []
                 )
-                st.session_state.awaiting_verification = True
-                st.info("Para prosseguir, insira o código enviado ao seu e-mail.")
+                df_initial = df_editor_initial.reset_index(drop=True)
+                df_new     = st.session_state.df_current.reset_index(drop=True)
+
+                for i in range(len(df_new)):
+                    nova     = df_new.loc[i]
+                    nome_ass = nova["NOME"]
+                    for p in col_perc:
+                        old = str(df_initial.at[i, p]).strip()
+                        new = str(nova[p]).strip()
+                        if old != new:
+                            new_f  = parse_valor_percentual(new)
+                            teto_f = parse_valor_percentual(str(teto_row[p]).strip())
+                            if new_f > teto_f:
+                                erros_teto.append(
+                                    f"- {p} de {nome_ass} ({new}%) excede o teto de {teto_row[p]}%."
+                                )
+                            else:
+                                pend = df_log[
+                                    (df_log["USUARIO"].str.upper() == nome_usuario.strip().upper()) &
+                                    (df_log["FILIAL"].str.upper() == selected_filial.strip().upper()) &
+                                    (df_log["ASSESSOR"] == nome_ass) &
+                                    (df_log["PRODUTO"] == p) &
+                                    (df_log["VALIDACAO NECESSARIA"] == "SIM") &
+                                    (df_log["ALTERACAO APROVADA"] == "NAO")
+                                ]
+                                if not pend.empty:
+                                    st.error(
+                                        f"O percentual **{p}** de **{nome_ass}** "
+                                        "já está em análise pelo Diretor e não pode ser alterado."
+                                    )
+                                    continue
+                                alteracoes.append({
+                                    "NOME":              nome_ass,
+                                    "PRODUTO":           p,
+                                    "PERCENTUAL ANTES":  old,
+                                    "PERCENTUAL DEPOIS": new
+                                })
+
+                if erros_teto:
+                    st.session_state.show_limpar_erros = True
+                    st.error("⚠️ Algumas alterações não foram salvas:\n" + "\n".join(erros_teto))
+                    st.info("Ajuste os valores e tente novamente.")
+                elif not alteracoes:
+                    st.info("Nenhuma alteração detectada.")
+                else:
+                    st.session_state.pending_alteracoes      = alteracoes
+                    st.session_state.pending_agora           = agora
+                    st.session_state.pending_selected_filial = selected_filial
+                    code = f"{random.randint(0,999999):06d}"
+                    st.session_state.verification_code      = code
+                    enviar_codigo_email(
+                        st.session_state.dados_lider["EMAIL_LIDER"],
+                        nome_usuario,
+                        code
+                    )
+                    st.session_state.awaiting_verification = True
+                    st.info("Para prosseguir, insira o código enviado ao seu e-mail.")
+
+            except Exception as err:
+                st.error(f"Ocorreu um erro ao salvar alterações: {err}")
+            finally:
+                gif_placeholder.empty()
 
         # 5) Ao clicar em Limpar Alterações
         if reset_all:
@@ -348,169 +374,179 @@ def main():
                 key="confirm_code"
             )
             if st.button("Confirmar código", key="confirmar_verif"):
-                if codigo_input != st.session_state.verification_code:
-                    st.error("Código inválido. Tente novamente.")
-                    return
+                gif_placeholder = st.empty()
+                try:
+                    gif_choice = random.choice(gif_urls)
+                    gif_placeholder.image(gif_choice, width=90)
+
+                    if codigo_input != st.session_state.verification_code:
+                        st.error("Código inválido. Tente novamente.")
+                        return
 
 
-                # 2) grava no log de Alterações (todas as alterações), agora com TIPO
-                linhas = []
-                for a in st.session_state.pending_alteracoes:
-                    before = a["PERCENTUAL ANTES"]
-                    after  = a["PERCENTUAL DEPOIS"]
-                    is_reducao = parse_valor_percentual(after) < parse_valor_percentual(before)
-                    validacao = "SIM" if is_reducao else "NAO"
-                    tipo      = "REDUCAO" if is_reducao else "AUMENTO"
+                    # 2) grava no log de Alterações (todas as alterações), agora com TIPO
+                    linhas = []
+                    for a in st.session_state.pending_alteracoes:
+                        before = a["PERCENTUAL ANTES"]
+                        after  = a["PERCENTUAL DEPOIS"]
+                        is_reducao = parse_valor_percentual(after) < parse_valor_percentual(before)
+                        validacao = "SIM" if is_reducao else "NAO"
+                        tipo      = "REDUCAO" if is_reducao else "AUMENTO"
 
-                    linhas.append([
-                        st.session_state.pending_agora,
-                        nome_usuario,
-                        selected_filial,
-                        a["NOME"],
-                        a["PRODUTO"],
-                        before,
-                        after,
-                        validacao,
-                        "NAO",     # ALTERACAO APROVADA
-                        tipo       # ← novo campo TIPO
-                    ])
-                inserir_alteracao_log(linhas)
-
-                # 3) separa reduções de não-reduções
-                reducoes = [
-                    a for a in st.session_state.pending_alteracoes
-                    if parse_valor_percentual(a["PERCENTUAL DEPOIS"]) < parse_valor_percentual(a["PERCENTUAL ANTES"])
-                ]
-                nao_reducoes = [
-                    a for a in st.session_state.pending_alteracoes
-                    if parse_valor_percentual(a["PERCENTUAL DEPOIS"]) >= parse_valor_percentual(a["PERCENTUAL ANTES"])
-                ]
-
-                # 4) para reduções, envia pedido ao Diretor (não aplica ainda)
-                if reducoes:
-                    # identifica Diretor da filial
-                    diretor_nome = df_filial[
-                        df_filial["FILIAL"].str.strip().str.upper()
-                        == selected_filial.strip().upper()
-                    ]["DIRETOR"].iloc[0].strip().upper()
-                    diretor_email = st.secrets["director_emails"][diretor_nome]
-                    for alt in reducoes:
-                        send_director_request(
-                            diretor_email,
+                        linhas.append([
+                            st.session_state.pending_agora,
                             nome_usuario,
                             selected_filial,
-                            alt["NOME"],
-                            alt["PRODUTO"],
-                            alt["PERCENTUAL ANTES"],
-                            alt["PERCENTUAL DEPOIS"],
-                            "https://smartc.streamlit.app/"
-                        )
-                    st.info("As alterações foram encaminhadas ao Diretor para validação.")
+                            a["NOME"],
+                            a["PRODUTO"],
+                            before,
+                            after,
+                            validacao,
+                            "NAO",     # ALTERACAO APROVADA
+                            tipo       # ← novo campo TIPO
+                        ])
+                    inserir_alteracao_log(linhas)
 
-                # 5) para não-reduções, aplica imediatamente:
-                if nao_reducoes:
-                    for alt in nao_reducoes:
-                        produto_col     = alt["PRODUTO"]
-                        # 1) parse em decimal (ex: 0.52)
-                        percent_decimal = parse_valor_percentual(alt["PERCENTUAL DEPOIS"])
-                        # 2) converte para inteiro (ex: 0.52 * 100 → 52)
-                        novo_val_int    = int(round(percent_decimal * 100))
+                    # 3) separa reduções de não-reduções
+                    reducoes = [
+                        a for a in st.session_state.pending_alteracoes
+                        if parse_valor_percentual(a["PERCENTUAL DEPOIS"]) < parse_valor_percentual(a["PERCENTUAL ANTES"])
+                    ]
+                    nao_reducoes = [
+                        a for a in st.session_state.pending_alteracoes
+                        if parse_valor_percentual(a["PERCENTUAL DEPOIS"]) >= parse_valor_percentual(a["PERCENTUAL ANTES"])
+                    ]
 
-                        # 1) Busca ID do assessor pelo nome + filial
-                        try:
-                            resp = (
-                                supabase
-                                .table("assessores")
-                                .select("ID")
-                                .eq("NOME", alt["NOME"].strip())
-                                .eq("FILIAL", selected_filial.strip().upper())
-                                .single()
-                                .execute()
+                    # 4) para reduções, envia pedido ao Diretor (não aplica ainda)
+                    if reducoes:
+                        # identifica Diretor da filial
+                        diretor_nome = df_filial[
+                            df_filial["FILIAL"].str.strip().str.upper()
+                            == selected_filial.strip().upper()
+                        ]["DIRETOR"].iloc[0].strip().upper()
+                        diretor_email = st.secrets["director_emails"][diretor_nome]
+                        for alt in reducoes:
+                            send_director_request(
+                                diretor_email,
+                                nome_usuario,
+                                selected_filial,
+                                alt["NOME"],
+                                alt["PRODUTO"],
+                                alt["PERCENTUAL ANTES"],
+                                alt["PERCENTUAL DEPOIS"],
+                                "https://smartc.streamlit.app/"
                             )
-                        except Exception as e:
-                            st.error(f"Erro ao buscar assessor {alt['NOME']}: {e}")
-                            continue
+                        st.info("As alterações foram encaminhadas ao Diretor para validação.")
 
-                        # Se não retornou dados, pula
-                        if not resp.data:
-                            st.error(f"Não achei {alt['NOME']} na filial {selected_filial}.")
-                            continue
+                    # 5) para não-reduções, aplica imediatamente:
+                    if nao_reducoes:
+                        for alt in nao_reducoes:
+                            produto_col     = alt["PRODUTO"]
+                            # 1) parse em decimal (ex: 0.52)
+                            percent_decimal = parse_valor_percentual(alt["PERCENTUAL DEPOIS"])
+                            # 2) converte para inteiro (ex: 0.52 * 100 → 52)
+                            novo_val_int    = int(round(percent_decimal * 100))
 
-                        assessor_id = resp.data["ID"]
+                            # 1) Busca ID do assessor pelo nome + filial
+                            try:
+                                resp = (
+                                    supabase
+                                    .table("assessores")
+                                    .select("ID")
+                                    .eq("NOME", alt["NOME"].strip())
+                                    .eq("FILIAL", selected_filial.strip().upper())
+                                    .single()
+                                    .execute()
+                                )
+                            except Exception as e:
+                                st.error(f"Erro ao buscar assessor {alt['NOME']}: {e}")
+                                continue
 
-                        # 2) Atualiza apenas a coluna do produto modificado
-                        try:
-                            supabase.table("assessores") \
-                                .update({ produto_col: novo_val_int }) \
-                                .eq("ID", assessor_id) \
-                                .execute()
-                        except Exception as e:
-                            st.error(f"Falha ao atualizar {alt['NOME']} ({produto_col}): {e}")
-                            continue
+                            # Se não retornou dados, pula
+                            if not resp.data:
+                                st.error(f"Não achei {alt['NOME']} na filial {selected_filial}.")
+                                continue
 
-                    # 5a) envia resumo por e-mail ao Líder (HTML)
-                    subj_l = f"Resumo de alterações em {selected_filial}"
-                    lista_html = "".join(
-                        f"<li>{x['NOME']}: {x['PRODUTO']} de {x['PERCENTUAL ANTES']}% → {x['PERCENTUAL DEPOIS']}%</li>"
-                        for x in nao_reducoes
-                    )
-                    conteudo_html_l = f"""
-                    <p>Olá {nome_usuario},</p>
-                    <p>Foram aplicadas as seguintes alterações em <strong>{selected_filial}</strong>
-                    no dia <strong>{st.session_state.pending_agora}</strong>:</p>
-                    <ul>
-                    {lista_html}
-                    </ul>
-                    """
-                    html_l = _build_email_html(subj_l, conteudo_html_l)
-                    enviar_resumo_email(
-                        [st.session_state.dados_lider["EMAIL_LIDER"]],
-                        subj_l,
-                        html_l,
-                        content_type="HTML"
-                    )   
+                            assessor_id = resp.data["ID"]
 
-                    # 5b) envia resumo para cada Assessor (com lookup de e-mail)
-                    agrup = defaultdict(list)
-                    for x in nao_reducoes:
-                        agrup[x["NOME"]].append(x)
+                            # 2) Atualiza apenas a coluna do produto modificado
+                            try:
+                                supabase.table("assessores") \
+                                    .update({ produto_col: novo_val_int }) \
+                                    .eq("ID", assessor_id) \
+                                    .execute()
+                            except Exception as e:
+                                st.error(f"Falha ao atualizar {alt['NOME']} ({produto_col}): {e}")
+                                continue
 
-                    for nome_a, alts in agrup.items():
-                        # — Busca o e-mail do assessor no DataFrame original —
-                        filtro = (
-                            (df_assessores["NOME"].str.strip().str.upper() == nome_a.strip().upper())
-                            & (df_assessores["FILIAL"].str.strip().str.upper() == selected_filial.strip().upper())
+                        # 5a) envia resumo por e-mail ao Líder (HTML)
+                        subj_l = f"Resumo de alterações em {selected_filial}"
+                        lista_html = "".join(
+                            f"<li>{x['NOME']}: {x['PRODUTO']} de {x['PERCENTUAL ANTES']}% → {x['PERCENTUAL DEPOIS']}%</li>"
+                            for x in nao_reducoes
                         )
-                        df_sel = df_assessores.loc[filtro]
-                        if df_sel.empty:
-                            continue  # se não encontrar, pula este assessor
-                        email_a = df_sel["EMAIL"].iloc[0]
-
-                        subj_a  = f"Resumo de alterações em {selected_filial}"
-                        lista_html_a = "".join(
-                            f"<li>{y['PRODUTO']}: {y['PERCENTUAL ANTES']}% → {y['PERCENTUAL DEPOIS']}%</li>"
-                            for y in alts
-                        )
-                        conteudo_html_a = f"""
-                        <p>Olá {nome_a},</p>
-                        <p>O líder <strong>{nome_usuario}</strong> realizou as seguintes alterações em
-                        <strong>{selected_filial}</strong> no dia <strong>{st.session_state.pending_agora}</strong>:</p>
+                        conteudo_html_l = f"""
+                        <p>Olá {nome_usuario},</p>
+                        <p>Foram aplicadas as seguintes alterações em <strong>{selected_filial}</strong>
+                        no dia <strong>{st.session_state.pending_agora}</strong>:</p>
                         <ul>
-                        {lista_html_a}
+                        {lista_html}
                         </ul>
                         """
-                        html_a = _build_email_html(subj_a, conteudo_html_a)
+                        html_l = _build_email_html(subj_l, conteudo_html_l)
                         enviar_resumo_email(
-                            [email_a],
-                            subj_a,
-                            html_a,
+                            [st.session_state.dados_lider["EMAIL_LIDER"]],
+                            subj_l,
+                            html_l,
                             content_type="HTML"
-                        )
+                        )   
+
+                        # 5b) envia resumo para cada Assessor (com lookup de e-mail)
+                        agrup = defaultdict(list)
+                        for x in nao_reducoes:
+                            agrup[x["NOME"]].append(x)
+
+                        for nome_a, alts in agrup.items():
+                            # — Busca o e-mail do assessor no DataFrame original —
+                            filtro = (
+                                (df_assessores["NOME"].str.strip().str.upper() == nome_a.strip().upper())
+                                & (df_assessores["FILIAL"].str.strip().str.upper() == selected_filial.strip().upper())
+                            )
+                            df_sel = df_assessores.loc[filtro]
+                            if df_sel.empty:
+                                continue  # se não encontrar, pula este assessor
+                            email_a = df_sel["EMAIL"].iloc[0]
+
+                            subj_a  = f"Resumo de alterações em {selected_filial}"
+                            lista_html_a = "".join(
+                                f"<li>{y['PRODUTO']}: {y['PERCENTUAL ANTES']}% → {y['PERCENTUAL DEPOIS']}%</li>"
+                                for y in alts
+                            )
+                            conteudo_html_a = f"""
+                            <p>Olá {nome_a},</p>
+                            <p>O líder <strong>{nome_usuario}</strong> realizou as seguintes alterações em
+                            <strong>{selected_filial}</strong> no dia <strong>{st.session_state.pending_agora}</strong>:</p>
+                            <ul>
+                            {lista_html_a}
+                            </ul>
+                            """
+                            html_a = _build_email_html(subj_a, conteudo_html_a)
+                            enviar_resumo_email(
+                                [email_a],
+                                subj_a,
+                                html_a,
+                                content_type="HTML"
+                            )
 
 
                     st.success(f"Alterações registradas com sucesso em {st.session_state.pending_agora}!")
                     st.subheader("Resumo das alterações:")
                     st.dataframe(pd.DataFrame(st.session_state.pending_alteracoes))
+
+                except Exception as err:
+                    st.error(f"Ocorreu um erro ao confirmar código: {err}")
+                finally:
+                    gif_placeholder.empty()
 
                 # 6) limpa flags de sessão
                 for k in (
@@ -521,7 +557,119 @@ def main():
                     "pending_selected_filial"
                 ):
                     st.session_state.pop(k, None)
-    
+
+    elif pagina == "Spoiler BeSmart (Em Construção)":
+        # 1) Busca os dados brutos do Supabase
+        query = supabase.table("recebiveis_futuros") \
+                        .select("data_de_credito,cliente,nome,duracao_com,comissao_bruto,produto,seguradora") \
+                        .eq("nome_filial_equipe", selected_filial)
+        if st.session_state.role == "director":
+            nome_dir = st.session_state.dados_lider["LIDER"]
+            query = query.eq("diretor", nome_dir)
+        result = query.execute()
+        df = pd.DataFrame(result.data)
+
+        # Verifica se o DataFrame está vazio antes de converter colunas
+        if df.empty:
+            st.info("Não há spoilers BeSmart para esta filial.")
+        else:
+            # 1) Converte a data
+            df['data_de_credito'] = pd.to_datetime(df['data_de_credito'], errors='coerce').dt.date
+
+            # 2) Converte colunas numéricas para float
+            df['duracao_com']    = pd.to_numeric(df['duracao_com'],    errors='coerce')
+            df['comissao_bruto'] = pd.to_numeric(df['comissao_bruto'], errors='coerce')
+
+            st.info("As informações abaixo são as produções BeSmart vinculadas à sua filial, que estão em apuração. Qualquer erro ou divergência, entre em contato com Comissões.")
+
+            # 3) Filtros — Data & Assessor (estilo Painel Analítico)
+            col1, col2 = st.columns(2)
+            with col1:
+                start_date = st.date_input(
+                    "Data de Início",
+                    min_value=df['data_de_credito'].min(),
+                    max_value=df['data_de_credito'].max(),
+                    value=df['data_de_credito'].min()
+                )
+            with col2:
+                end_date = st.date_input(
+                    "Data de Término",
+                    min_value=df['data_de_credito'].min(),
+                    max_value=df['data_de_credito'].max(),
+                    value=df['data_de_credito'].max()
+                )
+
+            assessores = ["Todos"] + sorted(df['nome'].dropna().unique().tolist())
+            selected_assessor = st.selectbox("Filtrar por Assessor", assessores)
+
+            # Aplica filtros
+            df = df[
+                (df['data_de_credito'] >= start_date) &
+                (df['data_de_credito'] <= end_date)
+            ]
+            if selected_assessor != "Todos":
+                df = df[df['nome'] == selected_assessor]
+
+            # Espaçamento antes dos cartões
+            st.markdown("<br>", unsafe_allow_html=True)
+
+            # 4) Cartões métricos customizados
+            cols = st.columns(5)
+            labels = [
+                "💰 Faturamento Estimado",
+                "📄 Quantidade de Registros",
+                "👥 Clientes Únicos",
+                "🧑‍💼 Assessores Únicos",
+                "🫱🏾‍🫲🏼 Parceiros Únicos"
+            ]
+            values = [
+                f"R$ {df['comissao_bruto'].sum():,.2f}",     # agora somatório numérico
+                len(df),
+                df['cliente'].nunique(),
+                df['nome'].nunique(),
+                df['seguradora'].nunique()           # agora média numérica
+            ]
+            for c, lbl, val in zip(cols, labels, values):
+                # Título grande
+                c.markdown(
+                    f"<div style='font-size:17px; font-weight:bold; margin-bottom:4px;'>{lbl}</div>",
+                    unsafe_allow_html=True
+                )
+                # Valor menor
+                c.markdown(
+                    f"<div style='font-size:28px; color:#111;'>{val}</div>",
+                    unsafe_allow_html=True
+                )
+
+            # 5) Linha separadora
+            st.markdown("---")
+
+            # 6) Título da tabela
+            st.markdown("**Detalhamento dos Spoilers BeSmart - Faturamento e Produções podem variar caso fornecedor ou relações cliente-assessor mudem.**")
+
+            # 7) Renomeia colunas para exibição
+            df_display = df.rename(columns={
+                'data_de_credito':  'Data de Crédito',
+                'cliente':          'Nome do Cliente',
+                'nome':             'Assessor',
+                'duracao_com':      'Parcela',
+                'comissao_bruto':   'Faturamento Estimado',
+                'produto':          'Produto',
+                'seguradora':       'Seguradora'
+            })
+
+            # 8) Formata Faturamento Estimado para “R$ 650,00”
+            df_display['Faturamento Estimado'] = (
+                df_display['Faturamento Estimado']
+                .apply(lambda x: f"R$ {x:,.2f}")
+                # converte “,” de milhar → temporário “X”, “.” decimal → “,”, e “X” → “.”
+                .str.replace(",", "X")
+                .str.replace(".", ",")
+                .str.replace("X", ".")
+            )
+
+            # 8) Exibe tabela UMA ÚNICA VEZ
+            st.dataframe(df_display, use_container_width=True)
 
     elif pagina == "Painel Analítico":
         display_analytics(
@@ -548,12 +696,22 @@ def main():
             st.session_state["suggestion_sent"] = False
 
         nova = st.text_area("Escreva abaixo:")
+        # Sugestão de Melhoria (com GIF de loading)
         if not st.session_state["suggestion_sent"]:
             if st.button("Enviar sugestão"):
-                if nova.strip():
-                    adicionar_sugestao(nova, user)
-                    st.cache_data.clear()              # limpa cache do gsheet
-                    st.session_state["suggestion_sent"] = True
+                gif_placeholder = st.empty()
+                try:
+                    gif_choice = random.choice(gif_urls)
+                    gif_placeholder.image(gif_choice, width=90)
+                    if nova.strip():
+                        adicionar_sugestao(nova, user)
+                        st.cache_data.clear()
+                        st.session_state["suggestion_sent"] = True
+                        st.success("✅ Sugestão enviada!")
+                except Exception as err:
+                    st.error(f"Ocorreu um erro ao enviar sugestão: {err}")
+                finally:
+                    gif_placeholder.empty()
         else:
             st.success("✅ Sugestão enviada!")
             # limpa o flag para que, após este run, o form volte ao normal
@@ -572,9 +730,17 @@ def main():
                 key="vote_choice"
             )
             if st.button("Confirmar Voto"):
-                adicionar_voto(suggestions[selected_idx]["ID"], user)
-                st.cache_data.clear()          # garante dados frescos
-                st.success("✅ Seu voto foi registrado com sucesso!")
+                gif_placeholder = st.empty()
+                try:
+                    gif_choice = random.choice(gif_urls)
+                    gif_placeholder.image(gif_choice, width=90)
+                    adicionar_voto(suggestions[selected_idx]["ID"], user)
+                    st.cache_data.clear()
+                    st.success("✅ Seu voto foi registrado com sucesso!")
+                except Exception as err:
+                    st.error(f"Ocorreu um erro ao registrar seu voto: {err}")
+                finally:
+                    gif_placeholder.empty()
 
         # ── 3) Resultados da votação (após votar) ──
         if usuario_votou_mes(user):
@@ -682,128 +848,137 @@ def main():
                 )
 
                 if st.button("Confirmar Validações"):
-                    # 🔄 1) força exclusividade: nunca ambos True
-                    df_edit = df_edit.copy()
-                    mask_both = df_edit["Aprovado"] & df_edit["Recusado"]
-                    # prefere manter “Aprovado” como definitivo em caso de empate
-                    df_edit.loc[mask_both, "Recusado"] = False
+                    gif_placeholder = st.empty()
+                    try:
+                        gif_choice = random.choice(gif_urls)
+                        gif_placeholder.image(gif_choice, width=90)
+                        # 🔄 1) força exclusividade: nunca ambos True
+                        df_edit = df_edit.copy()
+                        mask_both = df_edit["Aprovado"] & df_edit["Recusado"]
+                        # prefere manter “Aprovado” como definitivo em caso de empate
+                        df_edit.loc[mask_both, "Recusado"] = False
 
-                    aprovados = df_edit[df_edit["Aprovado"]]
-                    recusados = df_edit[df_edit["Recusado"]]
+                        aprovados = df_edit[df_edit["Aprovado"]]
+                        recusados = df_edit[df_edit["Recusado"]]
 
-                    # 🔒 2) checa comentário obrigatório para recusa
-                    faltam = [
-                        i+1
-                        for i, row in recusados.iterrows()
-                        if not (isinstance(row["COMENTARIO DIRETOR"], str) 
-                                and row["COMENTARIO DIRETOR"].strip())
-                    ]
-                    if faltam:
-                        st.error("Comentário do Diretor é obrigatório para recusa nas solicitações.")
-                        st.stop()
+                        # 🔒 2) checa comentário obrigatório para recusa
+                        faltam = [
+                            i+1
+                            for i, row in recusados.iterrows()
+                            if not (isinstance(row["COMENTARIO DIRETOR"], str) 
+                                    and row["COMENTARIO DIRETOR"].strip())
+                        ]
+                        if faltam:
+                            st.error("Comentário do Diretor é obrigatório para recusa nas solicitações.")
+                            st.stop()
 
-                    # 2) Se passou na validação, atualiza planilha Alterações
-                    for _, row in df_edit.iterrows():
-                        log_id = int(row["ID"])
+                        # 2) Se passou na validação, atualiza planilha Alterações
+                        for _, row in df_edit.iterrows():
+                            log_id = int(row["ID"])
 
-                        # 1) marca aprovação ou recusa
-                        atualizar_alteracao_log(
-                            row_id=log_id,
-                            coluna="ALTERACAO APROVADA",
-                            valor="SIM" if row["Aprovado"] else "NAO"
-                        )
-                        # 2) anota o comentário do Diretor
-                        atualizar_alteracao_log(
-                            row_id=log_id,
-                            coluna="COMENTARIO DIRETOR",
-                            valor=row["COMENTARIO DIRETOR"]
-                        )
-                        # 3) sinaliza que já não precisa mais de validação
-                        atualizar_alteracao_log(
-                            row_id=log_id,
-                            coluna="VALIDACAO NECESSARIA",
-                            valor="NAO"
-                        )
+                            # 1) marca aprovação ou recusa
+                            atualizar_alteracao_log(
+                                row_id=log_id,
+                                coluna="ALTERACAO APROVADA",
+                                valor="SIM" if row["Aprovado"] else "NAO"
+                            )
+                            # 2) anota o comentário do Diretor
+                            atualizar_alteracao_log(
+                                row_id=log_id,
+                                coluna="COMENTARIO DIRETOR",
+                                valor=row["COMENTARIO DIRETOR"]
+                            )
+                            # 3) sinaliza que já não precisa mais de validação
+                            atualizar_alteracao_log(
+                                row_id=log_id,
+                                coluna="VALIDACAO NECESSARIA",
+                                valor="NAO"
+                            )
 
-                    lider_email = st.session_state.dados_lider["EMAIL_LIDER"]
+                        lider_email = st.session_state.dados_lider["EMAIL_LIDER"]
 
-                    # envia email de recusa
-                    for _, row in recusados.iterrows():
-                        assunto = f"Redução recusada em {selected_filial}"
-                        conteudo_html_r = f"""
-                        <p>Olá {row['USUARIO']},</p>
-                        <p>
-                        Sua solicitação de redução do produto
-                        <strong>{row['PRODUTO']}</strong>
-                        de <strong>{row['PERCENTUAL ANTES']}% → {row['PERCENTUAL DEPOIS']}%</strong>
-                        em <strong>{selected_filial}</strong> foi
-                        <strong style="color:#dc3545;">recusada</strong> pelo Diretor.
-                        </p>
-                        <p>Comentário do Diretor:<br/>
-                        <em>{row['COMENTARIO DIRETOR']}</em>
-                        </p>
-                        """
-                        html_r = _build_email_html(assunto, conteudo_html_r)
-                        enviar_resumo_email(
-                            [lider_email],
-                            assunto,
-                            html_r,
-                            content_type="HTML"
-                        )
+                        # envia email de recusa
+                        for _, row in recusados.iterrows():
+                            assunto = f"Redução recusada em {selected_filial}"
+                            conteudo_html_r = f"""
+                            <p>Olá {row['USUARIO']},</p>
+                            <p>
+                            Sua solicitação de redução do produto
+                            <strong>{row['PRODUTO']}</strong>
+                            de <strong>{row['PERCENTUAL ANTES']}% → {row['PERCENTUAL DEPOIS']}%</strong>
+                            em <strong>{selected_filial}</strong> foi
+                            <strong style="color:#dc3545;">recusada</strong> pelo Diretor.
+                            </p>
+                            <p>Comentário do Diretor:<br/>
+                            <em>{row['COMENTARIO DIRETOR']}</em>
+                            </p>
+                            """
+                            html_r = _build_email_html(assunto, conteudo_html_r)
+                            enviar_resumo_email(
+                                [lider_email],
+                                assunto,
+                                html_r,
+                                content_type="HTML"
+                            )
 
-                    # envia email de aprovação (HTML)
-                    if not aprovados.empty:
-                        df_envio = aprovados.copy()
-                        df_envio["FILIAL"] = selected_filial
+                        # envia email de aprovação (HTML)
+                        if not aprovados.empty:
+                            df_envio = aprovados.copy()
+                            df_envio["FILIAL"] = selected_filial
 
-                        # 1) dispara e-mail de aprovação
-                        send_approval_result(
-                            df_envio,
-                            lider_email=lider_email,
-                            director_email=st.session_state.dados_lider["EMAIL_LIDER"]
-                        )
+                            # 1) dispara e-mail de aprovação
+                            send_approval_result(
+                                df_envio,
+                                lider_email=lider_email,
+                                director_email=st.session_state.dados_lider["EMAIL_LIDER"]
+                            )
 
-                        # 2) **ATUALIZA** os percentuais aprovados na tabela Assessores
-                        for _, row in df_envio.iterrows():
-                            produto_col     = row["PRODUTO"]
-                            # 1) parse em decimal
-                            percent_decimal = parse_valor_percentual(row["PERCENTUAL DEPOIS"])
-                            # 2) inteiro para o DB
-                            novo_val_int    = int(round(percent_decimal * 100))
+                            # 2) **ATUALIZA** os percentuais aprovados na tabela Assessores
+                            for _, row in df_envio.iterrows():
+                                produto_col     = row["PRODUTO"]
+                                # 1) parse em decimal
+                                percent_decimal = parse_valor_percentual(row["PERCENTUAL DEPOIS"])
+                                # 2) inteiro para o DB
+                                novo_val_int    = int(round(percent_decimal * 100))
 
-                            try:
-                                resp = (
-                                    supabase
-                                    .table("assessores")
-                                    .select("ID")
-                                    .eq("NOME", row["ASSESSOR"].strip())
-                                    .eq("FILIAL", selected_filial.strip().upper())
-                                    .single()
+                                try:
+                                    resp = (
+                                        supabase
+                                        .table("assessores")
+                                        .select("ID")
+                                        .eq("NOME", row["ASSESSOR"].strip())
+                                        .eq("FILIAL", selected_filial.strip().upper())
+                                        .single()
+                                        .execute()
+                                    )
+                                except Exception as e:
+                                    st.error(f"Erro ao buscar assessor {row['ASSESSOR']}: {e}")
+                                    continue
+
+                                # Se não retornou dados, pula
+                                if not resp.data:
+                                    st.error(f"Não achei {row['ASSESSOR']} na filial {selected_filial}.")
+                                    continue
+
+                                assessor_id = resp.data["ID"]
+
+                                # agora sim, atualiza pelo ID correto
+                                supabase.table("assessores") \
+                                    .update({ produto_col: novo_val_int }) \
+                                    .eq("ID", assessor_id) \
                                     .execute()
-                                )
-                            except Exception as e:
-                                st.error(f"Erro ao buscar assessor {row['ASSESSOR']}: {e}")
-                                continue
 
-                            # Se não retornou dados, pula
-                            if not resp.data:
-                                st.error(f"Não achei {row['ASSESSOR']} na filial {selected_filial}.")
-                                continue
+                        st.success(
+                            f"{len(aprovados)} aprovação(ões) e {len(recusados)} recusa(s) registradas!"
+                        )
+                        st.session_state.last_filial = None
 
-                            assessor_id = resp.data["ID"]
+                        st.session_state["refresh_validation"] = not st.session_state.get("refresh_validation", False)
 
-                            # agora sim, atualiza pelo ID correto
-                            supabase.table("assessores") \
-                                .update({ produto_col: novo_val_int }) \
-                                .eq("ID", assessor_id) \
-                                .execute()
-
-                    st.success(
-                        f"{len(aprovados)} aprovação(ões) e {len(recusados)} recusa(s) registradas!"
-                    )
-                    st.session_state.last_filial = None
-
-                    st.session_state["refresh_validation"] = not st.session_state.get("refresh_validation", False)
+                    except Exception as err:
+                        st.error(f"Ocorreu um erro ao validar alterações: {err}")
+                    finally:
+                        gif_placeholder.empty()
 
 
         # ── Líder ──
