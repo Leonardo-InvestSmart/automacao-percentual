@@ -119,14 +119,15 @@ def display_analytics(
         # — Novo: histórico de alterações feitas pelo líder —
     st.markdown("**Histórico de Alterações de Percentual do Líder**")
 
-    df_hist = df_log.loc[
-        (df_log["USUARIO"].str.upper() == nome_lider.strip().upper()) &
-        (df_log["FILIAL"].str.upper() == filial_lider.strip().upper()),
+    df_hist = df_periodo.loc[
+        (df_periodo["USUARIO"].str.upper() == nome_lider.strip().upper()) &
+        (df_periodo["FILIAL"].str.upper() == filial_lider.strip().upper()) &
+        (df_periodo["VALIDACAO NECESSARIA"] == "NAO"),  # só as alterações que já passaram por validação
         ["DataHora", "ASSESSOR", "PRODUTO", "PERCENTUAL ANTES", "PERCENTUAL DEPOIS", "ALTERACAO APROVADA"]
     ].copy()
 
     # formata data e hora
-    df_hist["Data e Hora"] = df_hist["DataHora"].dt.strftime("%d/%m/%Y %H:%M:%S")
+    df_hist["Data e Hora"] = df_hist["DataHora"].dt.strftime("%d/%m/%Y às %H:%M:%S")
 
     # mapeia aprovação:
     df_hist["Aprovação do Diretor"] = df_hist.apply(

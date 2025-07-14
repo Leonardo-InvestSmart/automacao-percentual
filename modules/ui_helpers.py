@@ -249,47 +249,49 @@ def pagina_ajuda():
     faqs = [
         {"section": "1. Login e Autenticação",
          "question": "Como faço login na plataforma?",
-         "answer": "Informe seu **nome e sobrenome** (como cadastrado) e a **senha**:\n"
-                   "- Líder: código OTP enviado por e-mail\n"
-                   "- Diretor: senha fixa"},
+         "answer": "Informe seu **nome e sobrenome** (como cadastrado) e a **senha** (Ambos enviados por e-mail)."},
         {"section": "1. Login e Autenticação",
          "question": "Esqueci ou não recebi o código OTP.",
-         "answer": "Clique em **Limpar Alterações** na tela de login para reiniciar o fluxo, solicite novo código e verifique spam. Se persistir, contate suporte@investsmart.com.br."},
+         "answer": "Clique em **Limpar Alterações** na tela de login para reiniciar o fluxo, solicite novo código e verifique spam. Se persistir, contate comissoes@investsmart.com.br."},
         {"section": "1. Login e Autenticação",
          "question": "Posso alterar minha senha de Diretor?",
-         "answer": "Não há autoatendimento; solicite troca ao time de TI."},
+         "answer": "Não há autoatendimento; solicite troca ao time de Comissões."},
         {"section": "2. Gestão de Percentuais",
          "question": "O que é “Teto de Percentuais”?",
          "answer": "Limite máximo permitido para cada produto em sua filial."},
         {"section": "2. Gestão de Percentuais",
          "question": "Como altero o percentual de um assessor?",
-         "answer": "1. Acesse **Gestão de Percentuais**\n"
-                   "2. Selecione sua filial\n"
-                   "3. Altere o valor na célula desejada\n"
-                   "4. Clique em **💾 Salvar alterações**"},
+         "answer": "Siga o passo a passo:\n"
+                   "- Acesse **Gestão de Percentuais**\n"
+                   "- Selecione sua filial\n"
+                   "- Altere o valor na célula desejada\n"
+                   "- Clique em **💾 Salvar alterações**"},
         {"section": "2. Gestão de Percentuais",
          "question": "Por que aparece “excede o teto”?",
          "answer": "Você tentou usar valor acima do teto. Use **Limpar Erros** ou ajuste para ≤ teto."},
         {"section": "2. Gestão de Percentuais",
          "question": "Qual a diferença entre “Limpar Alterações” e “Limpar Erros”?",
-         "answer": "- **Limpar Alterações:** desfaz **todas** as mudanças desde o último salvar.\n"
+         "answer": "Segue a diferença:\n"
+                   "- **Limpar Alterações:** desfaz **todas** as mudanças desde o último salvar.\n"
                    "- **Limpar Erros:** reverte apenas células fora do teto, mantendo alterações válidas."},
         {"section": "3. Validação de Reduções",
          "question": "Por que reduções não são aplicadas imediatamente?",
          "answer": "Toda redução (valor menor que o atual) precisa de aprovação do Diretor."},
         {"section": "3. Validação de Reduções",
          "question": "Como acompanho o status da solicitação?",
-         "answer": "1. Após inserir o OTP, verá mensagem de encaminhamento ao Diretor.\n"
-                   "2. Diretor aprova/recusa em **Validação**.\n"
-                   "3. Você recebe e-mail com resultado."},
+         "answer": "Segue o passo a passo:\n"
+                   "- Após inserir o OTP, verá mensagem de encaminhamento ao Diretor.\n"
+                   "- Diretor aprova/recusa em **Validação**.\n"
+                   "- Você recebe e-mail com resultado."},
         {"section": "3. Validação de Reduções",
          "question": "Recebi e-mail de recusa — e agora?",
          "answer": "Verifique o comentário do Diretor, renegocie se necessário e faça nova solicitação em **Gestão de Percentuais**."},
         {"section": "4. Painel Analítico",
          "question": "Como usar o Painel Analítico?",
-         "answer": "1. Clique em **Painel Analítico**\n"
-                   "2. Escolha sua filial (ou todas, se Diretor)\n"
-                   "3. Explore gráficos de performance e tendências."},
+         "answer": "Segue o passo a passo:\n"
+                   "- Clique em **Painel Analítico**\n"
+                   "- Escolha sua filial (ou todas, se Diretor)\n"
+                   "- Explore gráficos de performance e tendências."},
         {"section": "4. Painel Analítico",
          "question": "Dá para exportar os gráficos?",
          "answer": "Não há exportação nativa; use printscreen ou ferramentas do navegador."},
@@ -304,24 +306,27 @@ def pagina_ajuda():
          "answer": "Aplica descontos em comissões (ex.: bonificações) conforme políticas internas."},
         {"section": "6. Vídeo Tutorial e Ajuda",
          "question": "Onde encontro o tutorial em vídeo?",
-         "answer": "- Na **tela inicial** após o primeiro login\n- Na página **Ajuda** do menu lateral"},
+         "answer": "Segue abaixo:\n"
+                    "- Na **tela inicial** após o primeiro login\n"
+                    "- Na página **Ajuda** do menu lateral"},
         {"section": "6. Vídeo Tutorial e Ajuda",
          "question": "Posso rever o tutorial depois?",
          "answer": "Sim, acesse **Ajuda** a qualquer momento."},
         {"section": "7. Notificações por E-mail",
          "question": "Quais e-mails receberei?",
-         "answer": "- **Líder:** OTP de login, resumo de alterações, recusa de reduções\n"
+        "answer": "Segue os principais:\n"
+                   "- **Líder:** OTP de login, resumo de alterações, recusa de reduções\n"
                    "- **Diretor:** pedido de validação, confirmação de aprovação\n"
                    "- **Assessor:** resumo de alterações que afetam seus percentuais"},
         {"section": "7. Notificações por E-mail",
          "question": "Não recebi e-mail — o que faço?",
-         "answer": "Verifique spam, confirme seu e-mail no Google Sheets e contate suporte."},
+         "answer": "Verifique spam, confirme seu e-mail e contate suporte."},
         {"section": "8. Suporte e Contato",
          "question": "Onde reporto bugs ou solicito melhorias?",
-         "answer": "Envie detalhes para **suporte@investsmart.com.br**."},
+         "answer": "Envie detalhes para **comissoes@investsmart.com.br**."},
         {"section": "8. Suporte e Contato",
          "question": "Preciso de ajuda urgente — com quem falo?",
-         "answer": "Contate seu gestor ou equipe de TI via Teams/Slack/WhatsApp corporativo."},
+         "answer": "Contate seu gestor ou equipe de Comissões via card no Bitrix."},
     ]
 
     # Filtra itens de FAQ pelo termo de busca
