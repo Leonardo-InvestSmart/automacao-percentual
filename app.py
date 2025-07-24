@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from collections import defaultdict
 import random
 from streamlit import column_config
@@ -228,6 +229,23 @@ def main():
 
 
     if pagina == "Gestão de Percentuais":
+
+        html = """
+        <div style="
+            background-color: #ebff70;
+            color: #000;
+            padding: 0.75rem 1rem;
+            border-radius: 0.25rem;
+            border-left: 5px solid #ebff70;
+            margin-bottom: 1rem;
+        ">
+        As alterações de percentuais só serão aceitas até o <strong>dia 08</strong> do mês corrente.
+        Após essa data, as alterações só serão aplicadas no próximo mês.
+        </div>
+        """
+        st.markdown(html, unsafe_allow_html=True)
+
+
         # 1) Teto de Percentuais
         st.subheader("Teto de Percentuais para esta Filial")
         teto_row = df_filial_lider[
@@ -282,7 +300,7 @@ def main():
                 gif_placeholder.image(gif_choice, width=90)
 
                 agora, alteracoes, erros_teto = (
-                    datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    datetime.now().strftime("%d/%m/%Y às %H:%M"),  # ✅ dd/mm/YYYY às HH:MM
                     [],
                     []
                 )
@@ -327,12 +345,19 @@ def main():
                 if erros_teto:
                     st.session_state.show_limpar_erros = True
                     st.error("⚠️ Algumas alterações não foram salvas:\n" + "\n".join(erros_teto))
-                    st.info("Ajuste os valores e tente novamente.")
+                    st.error("Ajuste os valores e tente novamente.")
                 elif not alteracoes:
-                    st.info("Nenhuma alteração detectada.")
+                    st.error("Nenhuma alteração detectada.")
                 else:
-                    st.session_state.pending_alteracoes      = alteracoes
-                    st.session_state.pending_agora           = agora
+                    st.session_state.pending_alteracoes = alteracoes
+
+                    # 1) pega agora em SP
+                    agora_sp    = datetime.now(ZoneInfo("America/Sao_Paulo")).replace(microsecond=0)
+                    # 2) remove o tzinfo para que a string resultante não tenha offset
+                    agora_local = agora_sp.replace(tzinfo=None)
+                    # 3) monta a string sem offset e armazena
+                    st.session_state.pending_agora_raw     = agora_local.isoformat()  
+                    st.session_state.pending_agora_display = agora_sp.strftime("%d/%m/%Y às %H:%M")
                     st.session_state.pending_selected_filial = selected_filial
                     code = f"{random.randint(0,999999):06d}"
                     st.session_state.verification_code      = code
@@ -387,25 +412,30 @@ def main():
                     # 2) grava no log de Alterações (todas as alterações), agora com TIPO
                     linhas = []
                     for a in st.session_state.pending_alteracoes:
-                        before = a["PERCENTUAL ANTES"]
-                        after  = a["PERCENTUAL DEPOIS"]
-                        is_reducao = parse_valor_percentual(after) < parse_valor_percentual(before)
-                        validacao = "SIM" if is_reducao else "NAO"
-                        tipo      = "REDUCAO" if is_reducao else "AUMENTO"
+                        before_str = a["PERCENTUAL ANTES"]
+                        after_str  = a["PERCENTUAL DEPOIS"]
+                        is_reducao = parse_valor_percentual(after_str) < parse_valor_percentual(before_str)
+                        validacao  = "SIM" if is_reducao else "NAO"
+                        tipo       = "REDUCAO" if is_reducao else "AUMENTO"
+
+                        # converte "35,5" → 35.5
+                        before_num = float(before_str.replace(",", "."))
+                        after_num  = float(after_str.replace(",", "."))
 
                         linhas.append([
-                            st.session_state.pending_agora,
+                            st.session_state.pending_agora_raw,
                             nome_usuario,
                             selected_filial,
                             a["NOME"],
                             a["PRODUTO"],
-                            before,
-                            after,
+                            before_num,  # agora um número compatível com numeric(5,2)
+                            after_num,   # agora um número compatível com numeric(5,2)
                             validacao,
-                            "NAO",     # ALTERACAO APROVADA
-                            tipo       # ← novo campo TIPO
+                            "NAO",
+                            tipo
                         ])
                     inserir_alteracao_log(linhas)
+                    st.cache_data.clear()
 
                     # 3) separa reduções de não-reduções
                     reducoes = [
@@ -488,7 +518,7 @@ def main():
                         conteudo_html_l = f"""
                         <p>Olá {nome_usuario},</p>
                         <p>Foram aplicadas as seguintes alterações em <strong>{selected_filial}</strong>
-                        no dia <strong>{st.session_state.pending_agora}</strong>:</p>
+                        no dia <strong>{st.session_state.pending_agora_display}</strong>:</p>
                         <ul>
                         {lista_html}
                         </ul>
@@ -525,7 +555,7 @@ def main():
                             conteudo_html_a = f"""
                             <p>Olá {nome_a},</p>
                             <p>O líder <strong>{nome_usuario}</strong> realizou as seguintes alterações em
-                            <strong>{selected_filial}</strong> no dia <strong>{st.session_state.pending_agora}</strong>:</p>
+                            <strong>{selected_filial}</strong> no dia <strong>{st.session_state.pending_agora_display}</strong>:</p>
                             <ul>
                             {lista_html_a}
                             </ul>
@@ -539,7 +569,7 @@ def main():
                             )
 
 
-                    st.success(f"Alterações registradas com sucesso em {st.session_state.pending_agora}!")
+                    st.success(f"Alterações registradas com sucesso em {st.session_state.pending_agora_display}!")
                     st.subheader("Resumo das alterações:")
                     st.dataframe(pd.DataFrame(st.session_state.pending_alteracoes))
 
@@ -553,7 +583,7 @@ def main():
                     "awaiting_verification",
                     "verification_code",
                     "pending_alteracoes",
-                    "pending_agora",
+                    "pending_agora_display",
                     "pending_selected_filial"
                 ):
                     st.session_state.pop(k, None)
@@ -803,21 +833,21 @@ def main():
             else:
                 df_pend = df_pend.copy()
 
-                # 1️⃣ formata TIMESTAMP para “dd/mm/YYYY às HH:MM”
-                df_pend["Data e Hora"] = (
+                # 1️⃣ formata TIMESTAMP: converte de UTC para São Paulo e formata
+                df_pend["TIMESTAMP"] = (
                     pd.to_datetime(
                         df_pend["TIMESTAMP"],
-                        utc=True,            # aceita ISO-strings com offset
+                        utc=True,
                         errors="coerce"
                     )
-                    .dt.tz_localize(None)                # remove informação de fuso
-                    .dt.strftime("%d/%m/%Y às %H:%M")    # formata para exibição
+                    .dt.tz_convert("America/Sao_Paulo")   # converte de UTC para horário de Brasília
+                    .dt.tz_localize(None)                 # remove informação de fuso
+                    .dt.strftime("%d/%m/%Y às %H:%M")
                 )
                 df_pend["Aprovado"] = False
                 df_pend["Recusado"] = False
                 df_pend["COMENTARIO DIRETOR"] = ""
 
-                
                 df_edit = st.data_editor(
                     df_pend[[
                         "ID",
@@ -832,13 +862,13 @@ def main():
                         "COMENTARIO DIRETOR"
                     ]],
                     column_config={
-                        "ID":                  column_config.TextColumn("ID",                disabled=True),
-                        "TIMESTAMP":           column_config.TextColumn("Data e Hora",       disabled=True),
-                        "USUARIO":             column_config.TextColumn("Líder",             disabled=True),
-                        "ASSESSOR":            column_config.TextColumn("Assessor",          disabled=True),
-                        "PRODUTO":             column_config.TextColumn("Produto",           disabled=True),
-                        "PERCENTUAL ANTES":    column_config.TextColumn("Percentual Antes",  disabled=True),
-                        "PERCENTUAL DEPOIS":   column_config.TextColumn("Percentual Depois", disabled=True),
+                        "ID":                  column_config.TextColumn("ID",                 disabled=True),
+                        "TIMESTAMP":           column_config.TextColumn("Data e Hora",        disabled=True),
+                        "USUARIO":             column_config.TextColumn("Líder",              disabled=True),
+                        "ASSESSOR":            column_config.TextColumn("Assessor",           disabled=True),
+                        "PRODUTO":             column_config.TextColumn("Produto",            disabled=True),
+                        "PERCENTUAL ANTES":    column_config.TextColumn("Percentual Antes",   disabled=True),
+                        "PERCENTUAL DEPOIS":   column_config.TextColumn("Percentual Depois",  disabled=True),
                         "Aprovado":            column_config.CheckboxColumn("Aprovado"),
                         "Recusado":            column_config.CheckboxColumn("Recusado"),
                         "COMENTARIO DIRETOR":  column_config.TextColumn("Comentário do Diretor")
@@ -846,6 +876,7 @@ def main():
                     hide_index=True,
                     use_container_width=True
                 )
+
 
                 if st.button("Confirmar Validações"):
                     gif_placeholder = st.empty()
@@ -894,7 +925,7 @@ def main():
                                 coluna="VALIDACAO NECESSARIA",
                                 valor="NAO"
                             )
-
+                        st.cache_data.clear()
                         lider_email = st.session_state.dados_lider["EMAIL_LIDER"]
 
                         # envia email de recusa
@@ -994,8 +1025,9 @@ def main():
                         utc=True,
                         errors="coerce"
                     )
-                    .dt.tz_localize(None)
-                    .dt.strftime("%d/%m/%Y às %H:%M")
+                    .dt.tz_convert("America/Sao_Paulo")   # ajusta fuso
+                    .dt.tz_localize(None)                 # remove o timezone
+                    .dt.strftime("%d/%m/%Y às %H:%M")     # formata dd/mm/YYYY às HH:MM
                 )
 
                 # 2. Renomeia as demais colunas

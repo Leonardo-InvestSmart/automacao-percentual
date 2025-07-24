@@ -244,13 +244,18 @@ def display_analytics(
         )
     )
 
-    # combina e define altura
+    # calcula o valor máximo para definir altura dinâmica
+    max_val = df_medias["Média (%)"].max()
+    # usa 6px por ponto percentual + 20px de folga para o texto
+    dynamic_height = int(max_val * 6) + 20
+
+    # combina barras e texto, ajustando apenas a altura
     chart_prod = (
         (bar_prod + text_prod)
-        .properties(height=300)
+        .properties(height=dynamic_height)
     )
-
     st.altair_chart(chart_prod, use_container_width=True)
+
 
     st.markdown("---")
 

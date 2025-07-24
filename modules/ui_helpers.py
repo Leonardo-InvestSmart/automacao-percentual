@@ -226,11 +226,19 @@ def mostrar_tutorial_inicial():
         st.session_state.first_login = False
 
 def pagina_ajuda():
-    
+
+    st.write("Caso tenha dúvidas e precise de suporte adicional ligado à plataforma, você pode preencher um formulário, clicando no link abaixo, que entraremos em contato.")
+
+    # Link para formulário de dúvidas externas
+    st.markdown(
+        "[Clique aqui para preencher o formulário!](https://forms.cloud.microsoft/r/KWHcWDe61g)",
+        unsafe_allow_html=True
+    )
+
     st.write("Reveja o tutorial e encontre respostas às dúvidas mais comuns.")
 
     # Vídeo Tutorial embutido via HTML5
-    st.subheader("Vídeo Tutorial")
+    st.subheader("🎬 Vídeo Tutorial")
     with open("assets/Tutorial_SmartC.mp4", "rb") as f:
         video_bytes = f.read()
     b64 = base64.b64encode(video_bytes).decode()
@@ -240,10 +248,17 @@ def pagina_ajuda():
       Seu navegador não suporta vídeo em HTML5.
     </video>
     """
+    # Vídeo Tutorial embutido via HTML5
     st.markdown(video_html, unsafe_allow_html=True)
 
-    # Busca no FAQ
-    search_term = st.text_input("🔍 Buscar no FAQ")
+    # Espaçamento extra antes da busca
+    st.markdown("<div style='margin-top:1rem'></div>", unsafe_allow_html=True)
+
+    # Título maior para o campo de busca
+    st.subheader("🔍 Buscar no FAQ")
+
+    # Caixa de texto sem label (o título já foi colocado acima)
+    search_term = st.text_input("", key="search_term")
 
     # Estrutura de FAQ
     faqs = [
