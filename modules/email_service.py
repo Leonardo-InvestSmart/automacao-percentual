@@ -180,8 +180,9 @@ def _build_email_html(titulo: str, conteudo_html: str) -> str:
           <!-- header com logo -->
           <tr>
             <td style="background-color:#9966ff;padding:20px;text-align:center;">
-              <img src="{logo_data_uri}" alt="SmartC"
-                   style="display:block;margin:0 auto;max-width:200px;height:auto;" />
+              <div style="max-width:300px; margin:0 auto;">
+                <img src="{logo_data_uri}" alt="SmartC" width="170" style="display:block;margin:0 auto;" />
+              </div>
             </td>
           </tr>
           <!-- título -->

@@ -604,7 +604,7 @@ def main():
             st.info("Não há spoilers BeSmart para esta filial.")
         else:
             # 1) Converte a data
-            df['data_de_credito'] = pd.to_datetime(df['data_de_credito'], errors='coerce').dt.date
+            df['data_de_credito'] = pd.to_datetime(df['data_de_credito'], errors='coerce')
 
             # 2) Converte colunas numéricas para float
             df['duracao_com']    = pd.to_numeric(df['duracao_com'],    errors='coerce')
@@ -613,32 +613,60 @@ def main():
             st.info("As informações abaixo são as produções BeSmart vinculadas à sua filial, que estão em apuração. Qualquer erro ou divergência, entre em contato com Comissões.")
 
             # 3) Filtros — Data & Assessor (estilo Painel Analítico)
+            # Define hoje com timezone BR
+            hoje = datetime.now(ZoneInfo("America/Sao_Paulo")).date()
+            mes_atual = hoje.month
+            ano_atual = hoje.year
+
+            # Filtra apenas registros do mês e ano atual
+            df_mes_atual = df[
+                (df["data_de_credito"].dt.month == mes_atual) &
+                (df["data_de_credito"].dt.year == ano_atual)
+            ].copy()
+
+            # Se não houver dados no mês atual, mostra aviso e para
+            if df_mes_atual.empty:
+                st.info("Não há registros do BeSmart para o mês atual nesta filial.")
+                st.stop()
+
+            # Define os limites mínimo e máximo do mês atual com dados
+            min_data_mes = df_mes_atual["data_de_credito"].min()
+            max_data_mes = df_mes_atual["data_de_credito"].max()
+
+            # Inputs com limite restrito ao mês atual
             col1, col2 = st.columns(2)
             with col1:
                 start_date = st.date_input(
                     "Data de Início",
-                    min_value=df['data_de_credito'].min(),
-                    max_value=df['data_de_credito'].max(),
-                    value=df['data_de_credito'].min()
+                    value=min_data_mes,
+                    min_value=min_data_mes,
+                    max_value=max_data_mes,
+                    key="besmart_start"
                 )
             with col2:
                 end_date = st.date_input(
                     "Data de Término",
-                    min_value=df['data_de_credito'].min(),
-                    max_value=df['data_de_credito'].max(),
-                    value=df['data_de_credito'].max()
+                    value=max_data_mes,
+                    min_value=min_data_mes,
+                    max_value=max_data_mes,
+                    key="besmart_end"
                 )
 
-            assessores = ["Todos"] + sorted(df['nome'].dropna().unique().tolist())
+            # Filtro por assessor
+            assessores = ["Todos"] + sorted(df_mes_atual['nome'].dropna().unique().tolist())
             selected_assessor = st.selectbox("Filtrar por Assessor", assessores)
 
-            # Aplica filtros
-            df = df[
-                (df['data_de_credito'] >= start_date) &
-                (df['data_de_credito'] <= end_date)
+            # Aplica os filtros definidos pelo usuário
+            # Converte date para datetime (mantendo 00:00:00 e 23:59:59 para intervalos completos)
+            start_datetime = datetime.combine(start_date, datetime.min.time())
+            end_datetime   = datetime.combine(end_date, datetime.max.time())
+
+            df = df_mes_atual[
+                (df_mes_atual["data_de_credito"] >= start_datetime) &
+                (df_mes_atual["data_de_credito"] <= end_datetime)
             ]
             if selected_assessor != "Todos":
-                df = df[df['nome'] == selected_assessor]
+                df = df[df["nome"] == selected_assessor]
 
             # Espaçamento antes dos cartões
             st.markdown("<br>", unsafe_allow_html=True)
@@ -687,6 +715,10 @@ def main():
                 'produto':          'Produto',
                 'seguradora':       'Seguradora'
             })
+
+            # 7.1) Formata a data
+            df_display['Data de Crédito'] = df_display['Data de Crédito'].dt.strftime("%d/%m/%Y")
+
 
             # 8) Formata Faturamento Estimado para “R$ 650,00”
             df_display['Faturamento Estimado'] = (
