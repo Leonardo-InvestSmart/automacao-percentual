@@ -23,7 +23,7 @@ def construir_lista_emails():
     assessores das filiais e, com o tempo, adicionaremos mais informações úteis aos gestores. Abaixo alguns
     pontos que vocês devem prestar muita atenção!!!</p>
     <ol>
-      <li>O prazo limite para ajustes é todo dia 10 do mês. Esse prazo não será possível estender em nenhuma hipótese,
+      <li>O prazo limite para ajustes é todo dia 08 do mês. Esse prazo não será possível estender em nenhuma hipótese,
           então fiquem atentos. Caso você perca esse prazo por qualquer razão, o ajuste do % na plataforma deverá ser
           acompanhado da abertura de um card via Bitrix. Esse painel envia informações já integradas ao nosso novo
           processo interno.</li>
@@ -57,16 +57,29 @@ def construir_lista_emails():
         from modules.email_service import gerar_senha_personalizada
         senha = gerar_senha_personalizada(row["FILIAL"], nome, row["CPF"])
 
-        corpo_html = corpo_base + f"""
+        # 1) coloca margem entre itens da lista
+        corpo_base_just = re.sub(
+            r'<li>',
+            '<li style="margin-bottom:10px;">',
+            corpo_base
+        )
+
+        # 2) envolve o corpo em DIV justificado
+        corpo_justificado = f'''
+        <div style="text-align:justify;">
+        {corpo_base_just}
         <p><strong>Login:</strong> {login}<br>
-           <strong>Senha:</strong> {senha}</p>
+            <strong>Senha:</strong> {senha}</p>
         <p>Esse acesso é único e exclusivo da filial, por isso pedimos que não compartilhe com terceiros.</p>
         <p>Atenciosamente,</p>
         <p>Equipe de Comissões.</p>
-        """
+        </div>
+        '''
 
-        html_email = _build_email_html(assunto, corpo_html)
-        html_email = re.sub(r'<img[^>]+>', '', html_email)
+        # 3) usa o template padrão (inclui header e rodapé originais)
+        html_email = _build_email_html(assunto, corpo_justificado)
+
+
 
         lista.append({
             "nome_lider": nome,
@@ -83,37 +96,44 @@ def salvar_excel_validacao(df: pd.DataFrame, path: str = "validacao_emails.xlsx"
 
 def mostrar_exemplar_outlook(email: str, assunto: str, html: str):
     outlook = win32.Dispatch('Outlook.Application')
-    mail = outlook.CreateItem(0)
+    mail    = outlook.CreateItem(0)
+
+    # envia em nome de comissoes@investsmart.com.br
+    mail.SentOnBehalfOfName = "comissoes@investsmart.com.br"
+
     recipient = mail.Recipients.Add(email)
-    recipient.Type = 1   # 1 = olTo
-    mail.Subject = assunto
+    recipient.Type = 1   # olTo
+    mail.Subject  = assunto
     mail.HTMLBody = html
     mail.Display()
 
-def enviar_todos_outlook(df: pd.DataFrame, assunto: str):
+
+
+def enviar_todos_outlook(df: pd.DataFrame, assunto: str, batch_size: int = 10):
     outlook = win32.Dispatch('Outlook.Application')
-    for _, row in df.iterrows():
+    total = len(df)
+    for idx, row in enumerate(df.itertuples(index=False), start=1):
         mail = outlook.CreateItem(0)
-        mail.To = row["email_lider"]
-        mail.Subject = assunto
-        mail.HTMLBody = row["corpo_do_email"]
-        mail.Send()
-        print(f"E-mail enviado para {row['nome_lider']} <{row['email_lider']}>")
+        # …lógica de remetente, se houver…
+        mail.To       = row.email_lider
+        mail.Subject  = assunto
+        mail.HTMLBody = row.corpo_do_email
+        mail.Display()
+        print(f"[{idx}/{total}] E-mail preparado para {row.nome_lider} <{row.email_lider}>")
+
+        # a cada batch_size e-mails, pausa e pergunta
+        if idx % batch_size == 0 and idx < total:
+            resp = input(f"{idx} e-mails abertos. Digite 'CONTINUAR' para abrir os próximos {batch_size}, ou outra tecla para parar: ").strip().upper()
+            if resp != "CONTINUAR":
+                print("Processo interrompido pelo usuário.")
+                break
+
+
 
 if __name__ == "__main__":
     assunto, df_emails = construir_lista_emails()
     salvar_excel_validacao(df_emails)
 
-    # abre só o primeiro para revisão
-    primeira = df_emails.iloc[0]
-    mostrar_exemplar_outlook(
-        primeira["email_lider"],
-        assunto,
-        primeira["corpo_do_email"]
-    )
+    # abre todos os e-mails em lotes de 10 e pausa por input entre cada lote
+    enviar_todos_outlook(df_emails, assunto, batch_size=10)
 
-    # após revisão, digite 'ENVIAR' para disparar todos
-    if input("Digite 'ENVIAR' para disparar todos os e-mails: ").strip().upper() == "ENVIAR":
-        enviar_todos_outlook(df_emails, assunto)
-    else:
-        print("Envio cancelado.")

@@ -937,6 +937,10 @@ def main():
 
                         # 2) Se passou na validação, atualiza planilha Alterações
                         for _, row in df_edit.iterrows():
+                            # pula se nenhuma das opções foi marcada
+                            if not row["Aprovado"] and not row["Recusado"]:
+                                continue
+
                             log_id = int(row["ID"])
 
                             # 1) marca aprovação ou recusa
@@ -957,6 +961,7 @@ def main():
                                 coluna="VALIDACAO NECESSARIA",
                                 valor="NAO"
                             )
+
                         st.cache_data.clear()
                         lider_email = st.session_state.dados_lider["EMAIL_LIDER"]
 
