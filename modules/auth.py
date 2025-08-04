@@ -30,17 +30,14 @@ def do_login_stage1():
 
     # 1) Primeiro, tenta autenticar como Diretor com OTP
     directors = st.secrets["directors"]  # { "NOME": "senha", ... }
-    # busca key ignorando case
     found_dir = next(
         (k for k in directors if k.strip().upper() == user.upper()),
         None
     )
     if found_dir:
-        # senha está correta?
         if pwd != directors[found_dir]:
             st.error("Senha de Diretor inválida.")
             return
-        # gera e envia OTP ao e-mail do Diretor
         code = f"{random.randint(0, 999999):06d}"
         diretor_email = st.secrets["director_emails"][found_dir]
         if enviar_codigo_email(diretor_email, found_dir, code):
@@ -52,53 +49,124 @@ def do_login_stage1():
             st.session_state.role        = "director"
             st.session_state.login_stage = 2
             st.info("Código de verificação enviado para seu e-mail de Diretor.")
-            
         else:
             st.error("Não foi possível enviar o código de verificação ao Diretor.")
         return
 
-    # 2) Se não for Diretor, tenta como Líder (OTP por e-mail)
+    # 1.5) Agora tenta autenticar como RM com OTP (mesma lógica de Diretor)
+    rms = st.secrets["rms"]  # { "NOME_RM": "senha", ... }
+    found_rm = next(
+        (k for k in rms if k.strip().upper() == user.upper()),
+        None
+    )
+    if found_rm:
+        if pwd != rms[found_rm]:
+            st.error("Senha de RM inválida.")
+            return
+        code = f"{random.randint(0, 999999):06d}"
+        rm_email = st.secrets["rm_emails"][found_rm]
+        if enviar_codigo_email(rm_email, found_rm, code):
+            st.session_state.confirmation_code = code
+            st.session_state.temp_dados = {
+                "LIDER":       found_rm.strip(),
+                "EMAIL_LIDER": rm_email
+            }
+            st.session_state.role        = "rm"
+            st.session_state.login_stage = 2
+            st.info("Código de verificação enviado para seu e-mail de RM.")
+        else:
+            st.error("Não foi possível enviar o código de verificação à RM.")
+        return
+    
+    # 1.75) Agora autentica como Superintendente com OTP
+    superintendents = st.secrets["superintendents"]  # { "NOME_SUP": "senha", … }
+    found_sup = next(
+        (k for k in superintendents if k.strip().upper() == user.upper()),
+        None
+    )
+    if found_sup:
+        if pwd != superintendents[found_sup]:
+            st.error("Senha de Superintendente inválida.")
+            return
+        code = f"{random.randint(0,999999):06d}"
+        sup_email = st.secrets["superintendent_emails"][found_sup]
+        if enviar_codigo_email(sup_email, found_sup, code):
+            st.session_state.confirmation_code = code
+            st.session_state.temp_dados = {
+                "LIDER":       found_sup.strip(),
+                "EMAIL_LIDER": sup_email
+            }
+            st.session_state.role        = "superintendent"
+            st.session_state.login_stage = 2
+            st.info("Código de verificação enviado para seu e-mail de Superintendente.")
+        else:
+            st.error("Não foi possível enviar o código de verificação ao Superintendente.")
+        return
+
+
+    # 2) Se não for Diretor, tenta como Líder 1 (OTP por e-mail)
     df_filial_all = carregar_filial()
     df_filial_all["CPF_LIDER_CLEAN"] = (
         df_filial_all["CPF"].astype(str).apply(limpar_cpf)
     )
 
     nome_upper = user.upper()
-    df_cand = df_filial_all[
+    # -> Líder 1
+    df_cand1 = df_filial_all[
         df_filial_all["LIDER"].str.strip().str.upper() == nome_upper
     ]
-    if df_cand.empty:
-        st.error("Usuário não encontrado.")
-        return
-
     valid = False
-    for _, row in df_cand.iterrows():
-        senha_esp = gerar_senha_personalizada(
-            row["FILIAL"], row["LIDER"], row["CPF"]
-        )
-        if pwd == senha_esp:
-            valid = True
-            st.session_state.temp_dados = {
-                "LIDER":      row["LIDER"],
-                "CPF_LIDER":  row["CPF"],
-                "EMAIL_LIDER": row["EMAIL"]
-            }
-            break
+    if not df_cand1.empty:
+        for _, row in df_cand1.iterrows():
+            senha_esp = gerar_senha_personalizada(
+                row["FILIAL"], row["LIDER"], row["CPF"]
+            )
+            if pwd == senha_esp:
+                valid = True
+                st.session_state.temp_dados = {
+                    "LIDER":       row["LIDER"],
+                    "CPF_LIDER":   row["CPF"],
+                    "EMAIL_LIDER": row["EMAIL"]
+                }
+                break
+
+    # -> Líder 2
+    if not valid:
+        df_cand2 = df_filial_all[
+            df_filial_all["LIDER2"].str.strip().str.upper() == nome_upper
+        ]
+        if not df_cand2.empty:
+            for _, row in df_cand2.iterrows():
+                senha_esp2 = gerar_senha_personalizada(
+                    row["FILIAL"], row["LIDER2"], row["CPF_LIDER2"]
+                )
+                if pwd == senha_esp2:
+                    valid = True
+                    st.session_state.temp_dados = {
+                        "LIDER":        row["LIDER2"],
+                        "CPF_LIDER":    row["CPF_LIDER2"],
+                        "EMAIL_LIDER":  row["EMAIL_LIDER2"]
+                    }
+                    # opcional: distinguir a role interna
+                    st.session_state.role = "leader2"
+                    break
 
     if not valid:
-        st.error("Senha incorreta para este usuário.")
+        st.error("Usuário não encontrado ou senha incorreta.")
         return
 
-    # envia OTP ao Líder
+    # envia OTP ao Líder (1 ou 2)
     code = f"{random.randint(0, 999999):06d}"
-    if enviar_codigo_email(row["EMAIL"], row["LIDER"], code):
+    email = st.session_state.temp_dados["EMAIL_LIDER"]
+    nome  = st.session_state.temp_dados["LIDER"]
+    if enviar_codigo_email(email, nome, code):
         st.session_state.confirmation_code = code
-        st.session_state.role              = "leader"
+        st.session_state.role              = st.session_state.role or "leader"
         st.session_state.login_stage       = 2
-        st.info("Código de confirmação enviado para seu e-mail.")
-        return
+        st.info("Código de verificação enviado para seu e-mail.")
     else:
-        st.error("Não foi possível enviar o código de confirmação ao Líder.")
+        st.error("Não foi possível enviar o código de verificação ao Líder.")
+    return
 
 def do_login_stage2():
     st.subheader("Confirme o código de acesso")

@@ -116,13 +116,23 @@ def main():
         and c.strip() != ""
     ]
 
-    # — Filiais do usuário (Líder ou Diretor) e DataFrame de filiais correspondentes —
+    # ── Filiais do usuário (Diretor, RM ou Líder) ──
     nome_usuario = st.session_state.dados_lider["LIDER"]
-    if st.session_state.role == "director":
+    role        = st.session_state.role
+
+    if role == "director":
         df_filial_lider = df_filial[
             df_filial["DIRETOR"].str.strip().str.upper() == nome_usuario.strip().upper()
         ]
-    else:
+    elif role == "rm":
+        df_filial_lider = df_filial[
+            df_filial["RM"].str.strip().str.upper() == nome_usuario.strip().upper()
+        ]
+    elif role == "superintendent":
+        df_filial_lider = df_filial[
+            df_filial["SUPERINTENDENTE"].str.strip().str.upper() == nome_usuario.strip().upper()
+        ]
+    else:  # leader
         df_filial_lider = df_filial[
             df_filial["LIDER"].str.strip().str.upper() == nome_usuario.strip().upper()
         ]
@@ -280,6 +290,15 @@ def main():
             st.session_state.last_filial = selected_filial
             st.session_state.df_current  = df_editor_initial.copy()
 
+        # ── Se for RM, só leitura ──
+        if st.session_state.role == "rm":
+            st.info("Acesso apenas para visualização de percentuais.")
+            st.dataframe(
+                df_ass_filial[display_cols],
+                use_container_width=True
+            )
+            return
+
         # 3) Editor dentro de um form: só reruna ao submeter
         with st.form("percentual_form"):
             disabled = [c for c in display_cols if c not in col_perc]
@@ -290,7 +309,7 @@ def main():
             st.session_state.df_current = df_edited
 
             submitted = st.form_submit_button("💾 Salvar alterações")
-            reset_all = st.form_submit_button("🧹 Limpar Alterações")
+            reset_all  = st.form_submit_button("🧹 Limpar Alterações")
 
         # 4) Ao clicar em Salvar alterações
         if submitted:
@@ -316,11 +335,17 @@ def main():
                         if old != new:
                             new_f  = parse_valor_percentual(new)
                             teto_f = parse_valor_percentual(str(teto_row[p]).strip())
-                            if new_f > teto_f:
+                            # ─ logo após obter teto_row, capture o segmento ─
+                            segmento = teto_row.get("SEGMENTO", "").strip().upper()
+
+                            # ─ agora, dentro do loop:
+                            if segmento != "B2C" and new_f > teto_f:
+                                # só bloqueia teto se NÃO for B2C
                                 erros_teto.append(
                                     f"- {p} de {nome_ass} ({new}%) excede o teto de {teto_row[p]}%."
                                 )
                             else:
+                                # para B2C (ou abaixo do teto), registra a alteração
                                 pend = df_log[
                                     (df_log["USUARIO"].str.upper() == nome_usuario.strip().upper()) &
                                     (df_log["FILIAL"].str.upper() == selected_filial.strip().upper()) &
@@ -331,10 +356,10 @@ def main():
                                 ]
                                 if not pend.empty:
                                     st.error(
-                                        f"O percentual **{p}** de **{nome_ass}** "
-                                        "já está em análise pelo Diretor e não pode ser alterado."
+                                        f"O percentual **{p}** de **{nome_ass}** já está em análise e não pode ser alterado."
                                     )
                                     continue
+
                                 alteracoes.append({
                                     "NOME":              nome_ass,
                                     "PRODUTO":           p,
@@ -381,16 +406,27 @@ def main():
 
         # 6) Fase 2: confirmação do código
         if st.session_state.awaiting_verification:
-            pendencias = [
-                f"{a['PRODUTO']} de {a['PERCENTUAL ANTES']} → {a['PERCENTUAL DEPOIS']}"
-                for a in st.session_state.pending_alteracoes
-                if parse_valor_percentual(a["PERCENTUAL DEPOIS"]) <
-                parse_valor_percentual(a["PERCENTUAL ANTES"])
-            ]
+            # identifica segmento da filial selecionada
+            segmento = df_filial_lider.iloc[0].get("SEGMENTO", "").strip().upper()
+
+            if segmento == "B2C":
+                # em B2C, todas as alterações (↑ ou ↓) são pendências
+                pendencias = [
+                    f"{a['PRODUTO']} de {a['PERCENTUAL ANTES']} → {a['PERCENTUAL DEPOIS']}"
+                    for a in st.session_state.pending_alteracoes
+                ]
+            else:
+                # fora de B2C, só reduções
+                pendencias = [
+                    f"{a['PRODUTO']} de {a['PERCENTUAL ANTES']} → {a['PERCENTUAL DEPOIS']}"
+                    for a in st.session_state.pending_alteracoes
+                    if parse_valor_percentual(a["PERCENTUAL DEPOIS"]) <
+                    parse_valor_percentual(a["PERCENTUAL ANTES"])
+                ]
+
             if pendencias:
                 st.warning(
-                    f"Esse tipo de alteração {'; '.join(pendencias)} "
-                    "precisa de aprovação do seu Diretor."
+                    f"Esse tipo de alteração {'; '.join(pendencias)} precisa de aprovação do seu Diretor."
                 )
             codigo_input = st.text_input(
                 "Código de verificação",
@@ -410,15 +446,21 @@ def main():
 
 
                     # 2) grava no log de Alterações (todas as alterações), agora com TIPO
+                    # 2) grava no log de Alterações (todas as alterações), agora com TIPO
+                    segmento = df_filial_lider.iloc[0].get("SEGMENTO", "").strip().upper()
                     linhas = []
                     for a in st.session_state.pending_alteracoes:
                         before_str = a["PERCENTUAL ANTES"]
                         after_str  = a["PERCENTUAL DEPOIS"]
                         is_reducao = parse_valor_percentual(after_str) < parse_valor_percentual(before_str)
-                        validacao  = "SIM" if is_reducao else "NAO"
-                        tipo       = "REDUCAO" if is_reducao else "AUMENTO"
 
-                        # converte "35,5" → 35.5
+                        # em B2C, qualquer mudança = validação obrigatória; fora, só reduções
+                        if segmento == "B2C":
+                            validacao = "SIM"
+                        else:
+                            validacao = "SIM" if is_reducao else "NAO"
+
+                        tipo       = "REDUCAO" if is_reducao else "AUMENTO"
                         before_num = float(before_str.replace(",", "."))
                         after_num  = float(after_str.replace(",", "."))
 
@@ -428,8 +470,8 @@ def main():
                             selected_filial,
                             a["NOME"],
                             a["PRODUTO"],
-                            before_num,  # agora um número compatível com numeric(5,2)
-                            after_num,   # agora um número compatível com numeric(5,2)
+                            before_num,
+                            after_num,
                             validacao,
                             "NAO",
                             tipo
@@ -437,25 +479,27 @@ def main():
                     inserir_alteracao_log(linhas)
                     st.cache_data.clear()
 
-                    # 3) separa reduções de não-reduções
-                    reducoes = [
-                        a for a in st.session_state.pending_alteracoes
-                        if parse_valor_percentual(a["PERCENTUAL DEPOIS"]) < parse_valor_percentual(a["PERCENTUAL ANTES"])
-                    ]
-                    nao_reducoes = [
-                        a for a in st.session_state.pending_alteracoes
-                        if parse_valor_percentual(a["PERCENTUAL DEPOIS"]) >= parse_valor_percentual(a["PERCENTUAL ANTES"])
-                    ]
+                    # 3) separa solicitações (para aprovação) e aplicações imediatas
+                    if segmento == "B2C":
+                        solicitacoes      = st.session_state.pending_alteracoes
+                        aplicacoes_rapidas = []
+                    else:
+                        solicitacoes = [
+                            a for a in st.session_state.pending_alteracoes
+                            if parse_valor_percentual(a["PERCENTUAL DEPOIS"]) <
+                            parse_valor_percentual(a["PERCENTUAL ANTES"])
+                        ]
+                        aplicacoes_rapidas = [
+                            a for a in st.session_state.pending_alteracoes
+                            if parse_valor_percentual(a["PERCENTUAL DEPOIS"]) >=
+                            parse_valor_percentual(a["PERCENTUAL ANTES"])
+                        ]
 
-                    # 4) para reduções, envia pedido ao Diretor (não aplica ainda)
-                    if reducoes:
-                        # identifica Diretor da filial
-                        diretor_nome = df_filial[
-                            df_filial["FILIAL"].str.strip().str.upper()
-                            == selected_filial.strip().upper()
-                        ]["DIRETOR"].iloc[0].strip().upper()
+                    # 4) envia ao Diretor todas as solicitações pendentes
+                    if solicitacoes:
+                        diretor_nome  = df_filial_lider.iloc[0]["DIRETOR"].strip().upper()
                         diretor_email = st.secrets["director_emails"][diretor_nome]
-                        for alt in reducoes:
+                        for alt in solicitacoes:
                             send_director_request(
                                 diretor_email,
                                 nome_usuario,
@@ -468,16 +512,15 @@ def main():
                             )
                         st.info("As alterações foram encaminhadas ao Diretor para validação.")
 
-                    # 5) para não-reduções, aplica imediatamente:
-                    if nao_reducoes:
-                        for alt in nao_reducoes:
+                    # 5) aplica imediatamente o que não requer aprovação
+                    if aplicacoes_rapidas:
+                        # 5a) atualiza no Supabase
+                        for alt in aplicacoes_rapidas:
                             produto_col     = alt["PRODUTO"]
-                            # 1) parse em decimal (ex: 0.52)
                             percent_decimal = parse_valor_percentual(alt["PERCENTUAL DEPOIS"])
-                            # 2) converte para inteiro (ex: 0.52 * 100 → 52)
                             novo_val_int    = int(round(percent_decimal * 100))
 
-                            # 1) Busca ID do assessor pelo nome + filial
+                            # encontra ID do assessor
                             try:
                                 resp = (
                                     supabase
@@ -488,18 +531,12 @@ def main():
                                     .single()
                                     .execute()
                                 )
+                                assessor_id = resp.data["ID"]
                             except Exception as e:
                                 st.error(f"Erro ao buscar assessor {alt['NOME']}: {e}")
                                 continue
 
-                            # Se não retornou dados, pula
-                            if not resp.data:
-                                st.error(f"Não achei {alt['NOME']} na filial {selected_filial}.")
-                                continue
-
-                            assessor_id = resp.data["ID"]
-
-                            # 2) Atualiza apenas a coluna do produto modificado
+                            # atualiza o percentual
                             try:
                                 supabase.table("assessores") \
                                     .update({ produto_col: novo_val_int }) \
@@ -509,11 +546,11 @@ def main():
                                 st.error(f"Falha ao atualizar {alt['NOME']} ({produto_col}): {e}")
                                 continue
 
-                        # 5a) envia resumo por e-mail ao Líder (HTML)
+                        # 5b) envia resumo por e-mail ao Líder
                         subj_l = f"Resumo de alterações em {selected_filial}"
                         lista_html = "".join(
                             f"<li>{x['NOME']}: {x['PRODUTO']} de {x['PERCENTUAL ANTES']}% → {x['PERCENTUAL DEPOIS']}%</li>"
-                            for x in nao_reducoes
+                            for x in aplicacoes_rapidas
                         )
                         conteudo_html_l = f"""
                         <p>Olá {nome_usuario},</p>
@@ -529,25 +566,24 @@ def main():
                             subj_l,
                             html_l,
                             content_type="HTML"
-                        )   
+                        )
 
-                        # 5b) envia resumo para cada Assessor (com lookup de e-mail)
+                        # 5c) envia resumo para cada Assessor
                         agrup = defaultdict(list)
-                        for x in nao_reducoes:
+                        for x in aplicacoes_rapidas:
                             agrup[x["NOME"]].append(x)
 
                         for nome_a, alts in agrup.items():
-                            # — Busca o e-mail do assessor no DataFrame original —
                             filtro = (
                                 (df_assessores["NOME"].str.strip().str.upper() == nome_a.strip().upper())
                                 & (df_assessores["FILIAL"].str.strip().str.upper() == selected_filial.strip().upper())
                             )
                             df_sel = df_assessores.loc[filtro]
                             if df_sel.empty:
-                                continue  # se não encontrar, pula este assessor
+                                continue
                             email_a = df_sel["EMAIL"].iloc[0]
 
-                            subj_a  = f"Resumo de alterações em {selected_filial}"
+                            subj_a = f"Resumo de alterações em {selected_filial}"
                             lista_html_a = "".join(
                                 f"<li>{y['PRODUTO']}: {y['PERCENTUAL ANTES']}% → {y['PERCENTUAL DEPOIS']}%</li>"
                                 for y in alts
@@ -568,10 +604,12 @@ def main():
                                 content_type="HTML"
                             )
 
-
-                    st.success(f"Alterações registradas com sucesso em {st.session_state.pending_agora_display}!")
+                    st.success(
+                        f"Alterações registradas com sucesso em {st.session_state.pending_agora_display}!"
+                    )
                     st.subheader("Resumo das alterações:")
                     st.dataframe(pd.DataFrame(st.session_state.pending_alteracoes))
+
 
                 except Exception as err:
                     st.error(f"Ocorreu um erro ao confirmar código: {err}")
@@ -846,11 +884,23 @@ def main():
 
         # Exibe só os registros pendentes: redução solicitada, ainda não aprovada,
         # na filial certa, e que NÃO tenham recebido comentário do Diretor
+        # antes de filtrar, capture o segmento da filial atual
+        segmento = df_filial_lider.iloc[0] \
+                    .get("SEGMENTO", "") \
+                    .strip().upper()
+
+        # define quais tipos incluir
+        if segmento == "B2C":
+            tipos_validos = ["REDUCAO", "AUMENTO"]
+        else:
+            tipos_validos = ["REDUCAO"]
+
+        # aplica o filtro
         df_pend = df_alt[
             (df_alt["VALIDACAO NECESSARIA"] == "SIM")
-            & (df_alt["ALTERACAO APROVADA"] == "NAO")
-            & (df_alt["TIPO"]                == "REDUCAO")  # ← só reduções
-            & (df_alt["FILIAL"].astype(str).str.strip().str.upper()
+            & (df_alt["ALTERACAO APROVADA"]      == "NAO")
+            & df_alt["TIPO"].isin(tipos_validos)
+            & (df_alt["FILIAL"].str.strip().str.upper()
             == selected_filial.strip().upper())
             & (
                 df_alt["COMENTARIO DIRETOR"].isna()
@@ -858,7 +908,7 @@ def main():
             )
         ]
 
-        # ── Diretor ──
+        # ── Diretor aprova/recusa ──
         if st.session_state.role == "director":
             if df_pend.empty:
                 st.info("Não há alterações pendentes para validação.")
@@ -1048,48 +1098,45 @@ def main():
                     finally:
                         gif_placeholder.empty()
 
-
-        # ── Líder ──
-        else:
+        # ── Líder e RM só veem status ──
+        elif st.session_state.role in ("leader", "rm", "superintendent"):
             if df_pend.empty:
-                st.info("Nenhuma solicitação de redução pendente.")
+                st.info("Não há solicitações pendentes para validação.")
             else:
-                df_leader = df_pend.copy()
-                # 1. Converte e formata a coluna de timestamp  
-                df_leader["Data e Hora"] = (
+                df_view = df_pend.copy()
+
+                # formata Data e Hora diretamente, assumindo que TIMESTAMP já está em horário de SP
+                df_view["Data e Hora"] = (
                     pd.to_datetime(
-                        df_leader["TIMESTAMP"],
-                        utc=True,
+                        df_view["TIMESTAMP"],
                         errors="coerce"
                     )
-                    .dt.tz_convert("America/Sao_Paulo")   # ajusta fuso
-                    .dt.tz_localize(None)                 # remove o timezone
-                    .dt.strftime("%d/%m/%Y às %H:%M")     # formata dd/mm/YYYY às HH:MM
+                    .dt.strftime("%d/%m/%Y às %H:%M")
                 )
 
                 # 2. Renomeia as demais colunas
-                df_leader = df_leader.rename(columns={
-                    "USUARIO":             "Diretor",
-                    "ASSESSOR":            "Assessor",
-                    "PRODUTO":             "Produto",
-                    "PERCENTUAL ANTES":    "Percentual Antes",
-                    "PERCENTUAL DEPOIS":   "Percentual Depois",
-                    "COMENTARIO DIRETOR":  "Comentário do Diretor",
+                df_view = df_view.rename(columns={
+                    "USUARIO":            "Diretor",
+                    "ASSESSOR":           "Assessor",
+                    "PRODUTO":            "Produto",
+                    "PERCENTUAL ANTES":   "Percentual Antes",
+                    "PERCENTUAL DEPOIS":  "Percentual Depois",
+                    "COMENTARIO DIRETOR": "Comentário do Diretor",
                 })
+
+                # 3. Calcula o status de cada solicitação (Aprovado/Recusado/Aguardando)
                 def _status(row):
-                    # 1) Se já aprovado
                     if row["ALTERACAO APROVADA"] == "SIM":
                         return "Aprovado"
-                    # 2) Se reprovado de fato (NAO + comentário não-vazio)
                     comment = row["Comentário do Diretor"]
-                    if row["ALTERACAO APROVADA"] == "NAO" and isinstance(comment, str) and comment.strip() != "":
+                    if row["ALTERACAO APROVADA"] == "NAO" and isinstance(comment, str) and comment.strip():
                         return "Recusado"
-                    # 3) Senão, continua aguardando  
                     return "Aguardando..."
 
-                df_leader["Resposta Diretor"] = df_leader.apply(_status, axis=1)
+                df_view["Resposta Diretor"] = df_view.apply(_status, axis=1)
 
-                df_leader = df_leader[[
+                # 4. Seleciona colunas e exibe
+                df_view = df_view[[
                     "Data e Hora",
                     "Diretor",
                     "Assessor",
@@ -1101,10 +1148,11 @@ def main():
                 ]]
 
                 st.dataframe(
-                    df_leader,
+                    df_view,
                     use_container_width=True,
                     hide_index=True
                 )
+            
 
     else:
         st.markdown(
