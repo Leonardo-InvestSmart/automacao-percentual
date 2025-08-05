@@ -132,10 +132,16 @@ def main():
         df_filial_lider = df_filial[
             df_filial["SUPERINTENDENTE"].str.strip().str.upper() == nome_usuario.strip().upper()
         ]
-    else:  # leader
+    elif role in ("leader", "leader2"):
+        coluna = "LIDER"   if role == "leader" else "LIDER2"
         df_filial_lider = df_filial[
-            df_filial["LIDER"].str.strip().str.upper() == nome_usuario.strip().upper()
+            df_filial[coluna].str.strip().str.upper() == nome_usuario.strip().upper()
         ]
+
+    else:
+        st.error("Role desconhecida. Contate o time de Comissões.")
+        st.stop()
+
     filiais_do_lider = (
         df_filial_lider["FILIAL"]
         .dropna()
@@ -1099,7 +1105,7 @@ def main():
                         gif_placeholder.empty()
 
         # ── Líder e RM só veem status ──
-        elif st.session_state.role in ("leader", "rm", "superintendent"):
+        elif st.session_state.role in ("leader", "leader2", "rm", "superintendent"):
             if df_pend.empty:
                 st.info("Não há solicitações pendentes para validação.")
             else:

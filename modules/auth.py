@@ -161,8 +161,9 @@ def do_login_stage1():
     nome  = st.session_state.temp_dados["LIDER"]
     if enviar_codigo_email(email, nome, code):
         st.session_state.confirmation_code = code
-        st.session_state.role              = st.session_state.role or "leader"
-        st.session_state.login_stage       = 2
+        # Garante que role exista; se já for "leader2" mantém, caso contrário define "leader"
+        st.session_state.role        = st.session_state.get("role", "leader")
+        st.session_state.login_stage = 2
         st.info("Código de verificação enviado para seu e-mail.")
     else:
         st.error("Não foi possível enviar o código de verificação ao Líder.")
