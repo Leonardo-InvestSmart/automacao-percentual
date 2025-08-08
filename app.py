@@ -7,6 +7,7 @@ import random
 from streamlit import column_config
 import httpx
 import random
+from streamlit_option_menu import option_menu
 
 from config import *
 from modules.ui_helpers import (
@@ -18,7 +19,14 @@ from modules.ui_helpers import (
   pagina_ajuda
 )
 from modules.auth import do_login_stage1, do_login_stage2
-from modules.email_service import enviar_codigo_email, send_director_request, enviar_resumo_email, _build_email_html, send_approval_result
+from modules.email_service import (
+    enviar_codigo_email,
+    send_director_request,
+    enviar_resumo_email,
+    _build_email_html,
+    send_approval_result,
+    send_declaration_email
+)
 from modules.formatters import (
     parse_valor_percentual,
     formatar_percentual_para_planilha,
@@ -107,7 +115,7 @@ def main():
         st.stop()
 
     # — Define colunas fixas e percentuais —
-    cols_fixos = ["SIGLA", "CPF", "NOME", "EMAIL", "FILIAL", "FUNCAO"]
+    cols_fixos = ["SIGLA", "CPF", "NOME", "EMAIL", "FILIAL", "FUNCAO", "LAST_UPDATE"]
     col_perc = [
         c for c in df_assessores.columns
         if c not in cols_fixos       # tira as fixas
@@ -166,32 +174,53 @@ def main():
     # — Menu lateral personalizado —
     st.sidebar.markdown(
         """
-        <style>
-        @import url('https://fonts.googleapis.com/css2?family=Barlow:wght@600&display=swap');
-        .menu-nav {
-            font-family: 'Barlow', sans-serif;
-            font-size: 18px;
-            font-weight: 600;
-            color: white;
-            margin-top: 1rem;
-            margin-bottom: 1rem;
-            text-align: center;
-        }
-        /* Faz cada botão ocupar 100% e ter borda preta */
-        section[data-testid="stSidebar"] .stButton > button {
-            width: 100% !important;
-            margin-bottom: 0.5rem !important;
-            border: 1px solid #000 !important;
-        }
-        </style>
         <div class="menu-nav">Menu de navegação</div>
         """,
         unsafe_allow_html=True
     )
-    for p in pages:
-        if st.sidebar.button(p, key=p):
-            st.session_state.pagina = p
+
+    with st.sidebar:
+
+        # menu customizado
+        pagina_escolhida = option_menu(
+            menu_title=None,
+            options=pages,
+            icons=[  # ou crie um dicionário page_icons e passe icons=[...]
+                "grid", "check2-square", "bar-chart-line", "lightbulb",
+                "question-circle", "megaphone"
+            ],
+            default_index=pages.index(st.session_state.get("pagina", pages[0])),
+            styles={
+                "container": {"padding": "0!important", "background-color": "#9966ff"},
+                "icon":      {"font-size": "16px"},
+                "nav-link": {
+                    "font-size": "14px",
+                    "text-align": "left",
+                    "margin": "0px",
+                    "padding": "8px 16px",
+                },
+                "nav-link-selected": {
+                    "background-color": "#121212",
+                    "font-weight": "bold",
+                    "font-size": "14px",
+                },
+            },
+        )
+
+        # espaço e botão de logout (se já estiver logado)
+        st.markdown("<br><br><br>", unsafe_allow_html=True)
+        if st.session_state.get("user_name"):
+            if st.button("Logout"):
+                st.session_state.clear()
+                st.rerun()
+
+        # atualiza página e dispara rerun
+        if st.session_state.get("pagina") != pagina_escolhida:
+            st.session_state.pagina = pagina_escolhida
+            st.rerun()
+
     pagina = st.session_state.pagina
+
 
     # — Título dinâmico no topo da área principal —
     page_icons = {
@@ -212,15 +241,14 @@ def main():
         # — Seletor de filial com label no mesmo estilo da saudação —
         st.markdown(
             """
-            <h4 style="
-                font-family: 'Barlow', sans-serif;
-                font-size: 18px;
-                margin-top: 0rem;
-                margin-bottom: -2.7rem;  /* diminui espaçamento */
-                font-weight: 200;
+            <div style="
+                font-size:17px;
+                color:#000000;
+                font-weight:600;      /* mesmo peso visual da saudação */
+                margin: 0 0 -3.7rem 0;
             ">
-            Selecione a filial para gerenciar
-            </h4>
+                Selecione a filial para gerenciar:
+            </div>
             """,
             unsafe_allow_html=True
         )
@@ -229,20 +257,22 @@ def main():
             st.warning("Nenhuma filial disponível para este usuário.")
             st.stop()
 
-        # — selectbox com a primeira filial já selecionada por padrão —
+        # Recupera do session_state (ou usa o primeiro da lista, se ainda não existir)
+        default = st.session_state.get("filial_selecionada", filiais_do_lider[0])
+        # Garante que o default exista na lista
+        initial_index = filiais_do_lider.index(default) if default in filiais_do_lider else 0
+
         selected_filial = st.selectbox(
-            "", 
+            "",
             filiais_do_lider,
             key="filial_selecionada",
-            index=0   # pré-seleciona a primeira da lista ordenada
+            index=initial_index
         )
         # — Saudação —
         st.markdown(f"Olá, **{nome_usuario}**! Você está gerenciando a filial **{selected_filial}**.")
     else:
         # Em “Ajuda” não precisamos de filial
         selected_filial = None
-
-
 
     if pagina == "Gestão de Percentuais":
 
@@ -285,8 +315,9 @@ def main():
         for p in col_perc:
             df_ass_filial[p] = df_ass_filial[p].apply(formatar_para_exibir)
 
-        df_ass_filial = df_ass_filial.drop(columns=["ID"], errors="ignore")
-        fixed       = [c for c in cols_fixos if c not in ["CPF", "EMAIL", "ID"]]
+        df_ass_filial = df_ass_filial.drop(columns=["ID", "LAST_UPDATE"], errors="ignore")
+
+        fixed       = [c for c in cols_fixos if c not in ["CPF", "EMAIL", "ID", "LAST_UPDATE"]]
         percent     = col_perc.copy()
         display_cols = fixed + percent
         df_editor_initial = df_ass_filial[display_cols].copy()
@@ -415,14 +446,13 @@ def main():
             # identifica segmento da filial selecionada
             segmento = df_filial_lider.iloc[0].get("SEGMENTO", "").strip().upper()
 
+            # pendências só em B2C (tudo) ou em B2B (somente reduções)
             if segmento == "B2C":
-                # em B2C, todas as alterações (↑ ou ↓) são pendências
                 pendencias = [
                     f"{a['PRODUTO']} de {a['PERCENTUAL ANTES']} → {a['PERCENTUAL DEPOIS']}"
                     for a in st.session_state.pending_alteracoes
                 ]
             else:
-                # fora de B2C, só reduções
                 pendencias = [
                     f"{a['PRODUTO']} de {a['PERCENTUAL ANTES']} → {a['PERCENTUAL DEPOIS']}"
                     for a in st.session_state.pending_alteracoes
@@ -430,10 +460,13 @@ def main():
                     parse_valor_percentual(a["PERCENTUAL ANTES"])
                 ]
 
+            # só mostra aviso quando houver pendências
             if pendencias:
                 st.warning(
-                    f"Esse tipo de alteração {'; '.join(pendencias)} precisa de aprovação do seu Diretor."
+                    f"Essas alterações requerem aprovação do Diretor: " +
+                    "; ".join(pendencias)
                 )
+
             codigo_input = st.text_input(
                 "Código de verificação",
                 type="password",
@@ -883,80 +916,60 @@ def main():
 
             st.table(styled)
 
-
     elif pagina == "Validação":
         st.subheader("Pendências de Validação")
         df_alt = carregar_alteracoes()
 
-        # Exibe só os registros pendentes: redução solicitada, ainda não aprovada,
-        # na filial certa, e que NÃO tenham recebido comentário do Diretor
-        # antes de filtrar, capture o segmento da filial atual
-        segmento = df_filial_lider.iloc[0] \
-                    .get("SEGMENTO", "") \
-                    .strip().upper()
+        # Captura segmento e define quais tipos incluir
+        segmento = df_filial_lider.iloc[0].get("SEGMENTO", "").strip().upper()
+        tipos_validos = ["REDUCAO", "AUMENTO"] if segmento == "B2C" else ["REDUCAO"]
 
-        # define quais tipos incluir
-        if segmento == "B2C":
-            tipos_validos = ["REDUCAO", "AUMENTO"]
-        else:
-            tipos_validos = ["REDUCAO"]
-
-        # aplica o filtro
+        # Filtra apenas registros pendentes de validação
         df_pend = df_alt[
-            (df_alt["VALIDACAO NECESSARIA"] == "SIM")
-            & (df_alt["ALTERACAO APROVADA"]      == "NAO")
-            & df_alt["TIPO"].isin(tipos_validos)
-            & (df_alt["FILIAL"].str.strip().str.upper()
-            == selected_filial.strip().upper())
-            & (
-                df_alt["COMENTARIO DIRETOR"].isna()
-                | (df_alt["COMENTARIO DIRETOR"].str.strip() == "")
+            (df_alt["VALIDACAO NECESSARIA"] == "SIM") &
+            (df_alt["ALTERACAO APROVADA"]      == "NAO") &
+            df_alt["TIPO"].isin(tipos_validos) &
+            (df_alt["FILIAL"].str.strip().str.upper() == selected_filial.strip().upper()) &
+            (
+                df_alt["COMENTARIO DIRETOR"].isna() |
+                (df_alt["COMENTARIO DIRETOR"].str.strip() == "")
             )
         ]
 
-        # ── Diretor aprova/recusa ──
+        # ── Fluxo do Diretor ──
         if st.session_state.role == "director":
+
             if df_pend.empty:
                 st.info("Não há alterações pendentes para validação.")
             else:
-                df_pend = df_pend.copy()
+                # Inicializa flag de declaração, se necessário
+                if "declaration_pending" not in st.session_state:
+                    st.session_state.declaration_pending = False
 
-                # 1️⃣ formata TIMESTAMP: converte de UTC para São Paulo e formata
-                df_pend["TIMESTAMP"] = (
-                    pd.to_datetime(
-                        df_pend["TIMESTAMP"],
-                        utc=True,
-                        errors="coerce"
-                    )
-                    .dt.tz_convert("America/Sao_Paulo")   # converte de UTC para horário de Brasília
-                    .dt.tz_localize(None)                 # remove informação de fuso
+                # 1️⃣ Prepara Data Editor
+                df_display = df_pend.copy()
+                df_display["TIMESTAMP"] = (
+                    pd.to_datetime(df_display["TIMESTAMP"], errors="coerce")
                     .dt.strftime("%d/%m/%Y às %H:%M")
                 )
-                df_pend["Aprovado"] = False
-                df_pend["Recusado"] = False
-                df_pend["COMENTARIO DIRETOR"] = ""
+                df_display["Aprovado"] = False
+                df_display["Recusado"] = False
+                df_display["COMENTARIO DIRETOR"] = ""
 
                 df_edit = st.data_editor(
-                    df_pend[[
-                        "ID",
-                        "TIMESTAMP",
-                        "USUARIO",
-                        "ASSESSOR",
-                        "PRODUTO",
-                        "PERCENTUAL ANTES",
-                        "PERCENTUAL DEPOIS",
-                        "Aprovado",
-                        "Recusado",
-                        "COMENTARIO DIRETOR"
+                    df_display[[
+                        "ID", "TIMESTAMP", "USUARIO", "ASSESSOR", "PRODUTO",
+                        "PERCENTUAL ANTES", "PERCENTUAL DEPOIS", "Aprovado",
+                        "Recusado", "COMENTARIO DIRETOR"
                     ]],
                     column_config={
-                        "ID":                  column_config.TextColumn("ID",                 disabled=True),
-                        "TIMESTAMP":           column_config.TextColumn("Data e Hora",        disabled=True),
-                        "USUARIO":             column_config.TextColumn("Líder",              disabled=True),
-                        "ASSESSOR":            column_config.TextColumn("Assessor",           disabled=True),
-                        "PRODUTO":             column_config.TextColumn("Produto",            disabled=True),
-                        "PERCENTUAL ANTES":    column_config.TextColumn("Percentual Antes",   disabled=True),
-                        "PERCENTUAL DEPOIS":   column_config.TextColumn("Percentual Depois",  disabled=True),
+                        "ID":                  column_config.TextColumn("ID", disabled=True),
+                        "TIMESTAMP":           column_config.TextColumn("Data e Hora", disabled=True),
+                        "USUARIO":             column_config.TextColumn("Líder", disabled=True),
+                        "ASSESSOR":            column_config.TextColumn("Assessor", disabled=True),
+                        "PRODUTO":             column_config.TextColumn("Produto", disabled=True),
+                        "PERCENTUAL ANTES":    column_config.TextColumn("Percentual Antes", disabled=True),
+                        "PERCENTUAL DEPOIS":   column_config.TextColumn("Percentual Depois", disabled=True),
                         "Aprovado":            column_config.CheckboxColumn("Aprovado"),
                         "Recusado":            column_config.CheckboxColumn("Recusado"),
                         "COMENTARIO DIRETOR":  column_config.TextColumn("Comentário do Diretor")
@@ -965,162 +978,183 @@ def main():
                     use_container_width=True
                 )
 
-
-                if st.button("Confirmar Validações"):
-                    gif_placeholder = st.empty()
+                # 2️⃣ Confirmação inicial: Aprovados vs Recusados
+                if st.button("Confirmar Validações", key="confirmar_validacoes"):
+                    placeholder = st.empty()
                     try:
+                        # Mostra GIF de loading
                         gif_choice = random.choice(gif_urls)
-                        gif_placeholder.image(gif_choice, width=90)
-                        # 🔄 1) força exclusividade: nunca ambos True
-                        df_edit = df_edit.copy()
-                        mask_both = df_edit["Aprovado"] & df_edit["Recusado"]
-                        # prefere manter “Aprovado” como definitivo em caso de empate
-                        df_edit.loc[mask_both, "Recusado"] = False
+                        placeholder.image(gif_choice, width=90)
 
-                        aprovados = df_edit[df_edit["Aprovado"]]
-                        recusados = df_edit[df_edit["Recusado"]]
+                        df_sel = df_edit.copy()
+                        # Garante exclusividade entre Aprovado e Recusado
+                        mask_both = df_sel["Aprovado"] & df_sel["Recusado"]
+                        df_sel.loc[mask_both, "Recusado"] = False
 
-                        # 🔒 2) checa comentário obrigatório para recusa
+                        aprovados = df_sel[df_sel["Aprovado"]].copy()
+                        recusados = df_sel[df_sel["Recusado"]].copy()
+
+                        # Comentário obrigatório para recusa
                         faltam = [
-                            i+1
-                            for i, row in recusados.iterrows()
-                            if not (isinstance(row["COMENTARIO DIRETOR"], str) 
-                                    and row["COMENTARIO DIRETOR"].strip())
+                            i+1 for i, row in recusados.iterrows()
+                            if not (isinstance(row["COMENTARIO DIRETOR"], str) and row["COMENTARIO DIRETOR"].strip())
                         ]
                         if faltam:
                             st.error("Comentário do Diretor é obrigatório para recusa nas solicitações.")
                             st.stop()
 
-                        # 2) Se passou na validação, atualiza planilha Alterações
-                        for _, row in df_edit.iterrows():
-                            # pula se nenhuma das opções foi marcada
-                            if not row["Aprovado"] and not row["Recusado"]:
-                                continue
-
-                            log_id = int(row["ID"])
-
-                            # 1) marca aprovação ou recusa
-                            atualizar_alteracao_log(
-                                row_id=log_id,
-                                coluna="ALTERACAO APROVADA",
-                                valor="SIM" if row["Aprovado"] else "NAO"
-                            )
-                            # 2) anota o comentário do Diretor
-                            atualizar_alteracao_log(
-                                row_id=log_id,
-                                coluna="COMENTARIO DIRETOR",
-                                valor=row["COMENTARIO DIRETOR"]
-                            )
-                            # 3) sinaliza que já não precisa mais de validação
-                            atualizar_alteracao_log(
-                                row_id=log_id,
-                                coluna="VALIDACAO NECESSARIA",
-                                valor="NAO"
-                            )
-
-                        st.cache_data.clear()
+                        # Processa recusas imediatamente
                         lider_email = st.session_state.dados_lider["EMAIL_LIDER"]
-
-                        # envia email de recusa
                         for _, row in recusados.iterrows():
+                            log_id = int(row["ID"])
+                            atualizar_alteracao_log(log_id, "ALTERACAO APROVADA", "NAO")
+                            atualizar_alteracao_log(log_id, "COMENTARIO DIRETOR", row["COMENTARIO DIRETOR"])
+                            atualizar_alteracao_log(log_id, "VALIDACAO NECESSARIA", "NAO")
+
                             assunto = f"Redução recusada em {selected_filial}"
-                            conteudo_html_r = f"""
+                            conteudo_html = f"""
                             <p>Olá {row['USUARIO']},</p>
-                            <p>
-                            Sua solicitação de redução do produto
+                            <p>Sua solicitação de redução do produto
                             <strong>{row['PRODUTO']}</strong>
                             de <strong>{row['PERCENTUAL ANTES']}% → {row['PERCENTUAL DEPOIS']}%</strong>
                             em <strong>{selected_filial}</strong> foi
-                            <strong style="color:#dc3545;">recusada</strong> pelo Diretor.
-                            </p>
-                            <p>Comentário do Diretor:<br/>
-                            <em>{row['COMENTARIO DIRETOR']}</em>
-                            </p>
+                            <strong style="color:#dc3545;">recusada</strong> pelo Diretor.</p>
+                            <p>Comentário do Diretor:<br/><em>{row['COMENTARIO DIRETOR']}</em></p>
                             """
-                            html_r = _build_email_html(assunto, conteudo_html_r)
                             enviar_resumo_email(
                                 [lider_email],
                                 assunto,
-                                html_r,
+                                _build_email_html(assunto, conteudo_html),
                                 content_type="HTML"
                             )
 
-                        # envia email de aprovação (HTML)
+                        st.cache_data.clear()
+
+                        # Se houver aprovações, armazena para a etapa da declaração
                         if not aprovados.empty:
-                            df_envio = aprovados.copy()
-                            df_envio["FILIAL"] = selected_filial
+                            st.session_state.declaration_pending = True
+                            st.session_state.aprovados_para_declaracao = aprovados
+                            st.session_state.df_envio = aprovados.assign(FILIAL=selected_filial)
 
-                            # 1) dispara e-mail de aprovação
-                            send_approval_result(
-                                df_envio,
-                                lider_email=lider_email,
-                                director_email=st.session_state.dados_lider["EMAIL_LIDER"]
-                            )
-
-                            # 2) **ATUALIZA** os percentuais aprovados na tabela Assessores
-                            for _, row in df_envio.iterrows():
-                                produto_col     = row["PRODUTO"]
-                                # 1) parse em decimal
-                                percent_decimal = parse_valor_percentual(row["PERCENTUAL DEPOIS"])
-                                # 2) inteiro para o DB
-                                novo_val_int    = int(round(percent_decimal * 100))
-
-                                try:
-                                    resp = (
-                                        supabase
-                                        .table("assessores")
-                                        .select("ID")
-                                        .eq("NOME", row["ASSESSOR"].strip())
-                                        .eq("FILIAL", selected_filial.strip().upper())
-                                        .single()
-                                        .execute()
-                                    )
-                                except Exception as e:
-                                    st.error(f"Erro ao buscar assessor {row['ASSESSOR']}: {e}")
-                                    continue
-
-                                # Se não retornou dados, pula
-                                if not resp.data:
-                                    st.error(f"Não achei {row['ASSESSOR']} na filial {selected_filial}.")
-                                    continue
-
-                                assessor_id = resp.data["ID"]
-
-                                # agora sim, atualiza pelo ID correto
-                                supabase.table("assessores") \
-                                    .update({ produto_col: novo_val_int }) \
-                                    .eq("ID", assessor_id) \
-                                    .execute()
-
-                        st.success(
-                            f"{len(aprovados)} aprovação(ões) e {len(recusados)} recusa(s) registradas!"
-                        )
-                        st.session_state.last_filial = None
-
-                        st.session_state["refresh_validation"] = not st.session_state.get("refresh_validation", False)
-
+                        st.success(f"{len(aprovados)} aprovação(ões) e {len(recusados)} recusa(s) registradas!")
                     except Exception as err:
                         st.error(f"Ocorreu um erro ao validar alterações: {err}")
                     finally:
-                        gif_placeholder.empty()
+                        placeholder.empty()
 
-        # ── Líder e RM só veem status ──
+                # 3️⃣ Se há declarações pendentes, exibe expander separado
+                if st.session_state.get("declaration_pending", False):
+                    aprovados = st.session_state.aprovados_para_declaracao.copy()
+                    aprovados["TIMESTAMP"] = pd.to_datetime(
+                        aprovados["TIMESTAMP"],
+                        format="%d/%m/%Y às %H:%M",
+                        dayfirst=True,
+                        errors="coerce"
+                    ).dt.strftime("%d/%m/%Y às %H:%M")
+                    itens_html = "".join(
+                        f"<tr>"
+                        f"<td>{row['ASSESSOR']}</td>"
+                        f"<td>{row['PRODUTO']}</td>"
+                        f"<td>{row['PERCENTUAL ANTES']}%</td>"
+                        f"<td>{row['PERCENTUAL DEPOIS']}%</td>"
+                        f"<td>{row['TIMESTAMP']}</td>"
+                        f"</tr>"
+                        for _, row in aprovados.iterrows()
+                    )
+                    declaracao = f"""
+                    <h3>Declaração de Revisão Contratual</h3>
+                    <p>Eu, <strong>{st.session_state.dados_lider['LIDER']}</strong>,
+                    declaro que a alteração do percentual de comissionamento ora aprovada por mim foi realizada em conformidade com a contratação 
+                    existente e formalizada com o respectivo assessor, as diretrizes internas da companhia e com os princípios da boa-fé, legalidade e transparência.
+                    </p> 
+                    Segue abaixo a relação dos assessores e percentuais alterados:
+                    </p>
+                    <table border="1" cellpadding="4" cellspacing="0">
+                        <tr>
+                            <th>Assessor</th><th>Produto</th>
+                            <th>Antes</th><th>Depois</th><th>Data e Hora</th>
+                        </tr>
+                        {itens_html}
+                    </table>
+                    <p>
+                    Asseguro que li as cláusulas aplicáveis e assumo responsabilidade sob a ótica da conformidade.
+                    </p>
+                    """
+                    with st.expander("Declaração de Revisão Contratual", expanded=True):
+                        st.markdown(declaracao, unsafe_allow_html=True)
+                        col_ok, col_cancel = st.columns(2)
+                        aprovar_decl = col_ok.button("Aprovar Declaração", key="aprovar_decl")
+                        recusar_decl = col_cancel.button("Recusar Declaração", key="recusar_decl")
+
+                    # se recusou, fecha o expander e mostra a mensagem aqui
+                    if recusar_decl:
+                        st.session_state.declaration_pending = False
+                        st.warning("Declaração rejeitada. As validações iniciais permanecem sem alteração.")
+                        st.rerun()
+
+                    # se aprovou, segue com a lógica normal de aprovação
+                    if aprovar_decl:
+                            try:
+                                # Atualiza logs de aprovação
+                                for _, row in aprovados.iterrows():
+                                    log_id = int(row["ID"])
+                                    atualizar_alteracao_log(log_id, "ALTERACAO APROVADA", "SIM")
+                                    atualizar_alteracao_log(log_id, "COMENTARIO DIRETOR", "")
+                                    atualizar_alteracao_log(log_id, "VALIDACAO NECESSARIA", "NAO")
+                                # Envia e-mails de resultado e de declaração
+                                send_approval_result(
+                                    st.session_state.df_envio,
+                                    st.session_state.dados_lider["EMAIL_LIDER"],
+                                    st.session_state.dados_lider["EMAIL_LIDER"]
+                                )
+                                items_html = "".join(
+                                    f"<tr><td>{row['ASSESSOR']}</td>"
+                                    f"<td>{row['PRODUTO']}</td>"
+                                    f"<td>{row['PERCENTUAL ANTES']}%</td>"
+                                    f"<td>{row['PERCENTUAL DEPOIS']}%</td>"
+                                    f"<td>{row['TIMESTAMP']}</td></tr>"
+                                    for _, row in st.session_state.df_envio.iterrows()
+                                )
+                                send_declaration_email(
+                                    director_email=st.session_state.dados_lider["EMAIL_LIDER"],
+                                    juridico_email="juridico@investsmart.com.br",
+                                    lider_name=st.session_state.dados_lider["LIDER"],
+                                    filial=selected_filial,
+                                    items_html=items_html,
+                                    timestamp_display=None
+                                )
+                                # Atualiza percentuais na tabela assessores
+                                for _, row in aprovados.iterrows():
+                                    produto_col = row["PRODUTO"]
+                                    novo_val = int(round(parse_valor_percentual(row["PERCENTUAL DEPOIS"]) * 100))
+                                    resp = supabase.table("assessores").select("ID")\
+                                        .eq("NOME", row["ASSESSOR"].strip())\
+                                        .eq("FILIAL", selected_filial.strip().upper())\
+                                        .single().execute()
+                                    if resp.data:
+                                        supabase.table("assessores")\
+                                            .update({produto_col: novo_val})\
+                                            .eq("ID", resp.data["ID"]).execute()
+                                st.success("Declaração aprovada.")
+
+                                st.cache_data.clear()
+                                st.rerun()
+                            except Exception as err:
+                                st.error(f"Erro ao aprovar declaração: {err}")
+                            finally:
+                                st.session_state.declaration_pending = False
+                                st.session_state["refresh_validation"] = not st.session_state.get("refresh_validation", False)
+
+        # ── Fluxo de Líder/RM (somente visualização) ──
         elif st.session_state.role in ("leader", "leader2", "rm", "superintendent"):
             if df_pend.empty:
                 st.info("Não há solicitações pendentes para validação.")
             else:
                 df_view = df_pend.copy()
-
-                # formata Data e Hora diretamente, assumindo que TIMESTAMP já está em horário de SP
                 df_view["Data e Hora"] = (
-                    pd.to_datetime(
-                        df_view["TIMESTAMP"],
-                        errors="coerce"
-                    )
+                    pd.to_datetime(df_view["TIMESTAMP"], errors="coerce")
                     .dt.strftime("%d/%m/%Y às %H:%M")
                 )
-
-                # 2. Renomeia as demais colunas
                 df_view = df_view.rename(columns={
                     "USUARIO":            "Diretor",
                     "ASSESSOR":           "Assessor",
@@ -1129,36 +1163,19 @@ def main():
                     "PERCENTUAL DEPOIS":  "Percentual Depois",
                     "COMENTARIO DIRETOR": "Comentário do Diretor",
                 })
-
-                # 3. Calcula o status de cada solicitação (Aprovado/Recusado/Aguardando)
                 def _status(row):
                     if row["ALTERACAO APROVADA"] == "SIM":
                         return "Aprovado"
-                    comment = row["Comentário do Diretor"]
-                    if row["ALTERACAO APROVADA"] == "NAO" and isinstance(comment, str) and comment.strip():
+                    if row["ALTERACAO APROVADA"] == "NAO" and isinstance(row["Comentário do Diretor"], str) and row["Comentário do Diretor"].strip():
                         return "Recusado"
                     return "Aguardando..."
-
                 df_view["Resposta Diretor"] = df_view.apply(_status, axis=1)
-
-                # 4. Seleciona colunas e exibe
                 df_view = df_view[[
-                    "Data e Hora",
-                    "Diretor",
-                    "Assessor",
-                    "Produto",
-                    "Percentual Antes",
-                    "Percentual Depois",
-                    "Resposta Diretor",
-                    "Comentário do Diretor"
+                    "Data e Hora", "Diretor", "Assessor", "Produto",
+                    "Percentual Antes", "Percentual Depois",
+                    "Resposta Diretor", "Comentário do Diretor"
                 ]]
-
-                st.dataframe(
-                    df_view,
-                    use_container_width=True,
-                    hide_index=True
-                )
-            
+                st.dataframe(df_view, use_container_width=True, hide_index=True)
 
     else:
         st.markdown(

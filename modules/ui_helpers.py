@@ -41,6 +41,14 @@ def apply_theme():
             border-bottom: 3px solid #ecff70;
         }
         /* Remove o botão de fechar a sidebar */
+        .menu-nav {
+            text-align: center !important;
+            color: #000000 !important;
+            font-weight: bold !important;
+            margin-bottom: 1rem !important;
+        }
+
+        /* Remove o botão de fechar a sidebar */
         button[title="Close sidebar"] {
             display: none !important;
         }
@@ -116,11 +124,13 @@ def apply_theme():
         }
 
         /* Faz cada botão da sidebar ocupar toda a largura e dar espaçamento */
-        section[data-testid="stSidebar"] .stButton > button {
+        section[data-testid="stSidebar"] button {
             width: 100% !important;
-            margin-bottom: 0.1rem !important;
+            display: block !important;
+            white-space: normal !important;
+            text-align: center !important;
+            margin: 0.25rem 0 !important;
         }
-
         /* esconde o rodapé “Running …” que aparece durante carregar_dataframe() */
         div[data-testid="stStatusWidget"] { display: none !important;
         }
@@ -161,7 +171,7 @@ def rodape_customizado():
 
         <div class="custom-footer">
             © 2025 InvestSmart – Todos os direitos reservados. <br>
-            <b>Made by Comissões v1.0</b>
+            <b>Made by Comissões v1.1.1</b>
         </div>
         """,
         unsafe_allow_html=True
@@ -192,35 +202,34 @@ def mostrar_data_editor(df_base, disabled_cols=None):
 
 def mostrar_tutorial_inicial():
     st.title("Bem-vindo ao SmartC!")
-    st.write("Assista ao vídeo abaixo para aprender a usar a plataforma:")
+    st.subheader("📢 RELEASE NOTES")
+    st.markdown("""
+    ##### **Nova versão:** 1.1.1
 
-    # 1) lê os bytes
-    with open("assets/Tutorial_SmartC.mp4", "rb") as f:
-        video_bytes = f.read()
+    ##### 🚀 Novas Funcionalidades
+    - Novo acesso para Superintendentes;
+    - Novo acesso para RM's;
+    - Filiais "B2C" demandam aprovação para qualquer alteração de percentual;
+    - Inclusão da "Declaração de Revisão Contratual" para validação das alterações para os diretores, atrelados ao Jurídico;
+    - Inclusão de acessos para Líderes 2.
 
-    # 2) converte para base64
-    b64 = base64.b64encode(video_bytes).decode()
+    ##### 🐛 Correções de Bugs
+    - Layout dos botões de paginação na barra lateral desconfiguraram com a atualização do sistema, por isso mudamos para uma nova versão de layout;
+    - Correção de desempenho da plataforma em conexão com o banco de dados.
 
-    # 3) monta um HTML <video> inline
-    video_html = f"""
-    <video controls style="max-width: 100%; height: auto;">
-      <source src="data:video/mp4;base64,{b64}" type="video/mp4">
-      Seu navegador não suporta vídeo em HTML5.
-    </video>
-    """
+    A **Equipe de Comissões** segue empenhada para levar à vocês a melhor experiência possível!
+    """, unsafe_allow_html=True)
 
-    # 4) injeta o HTML diretamente
-    st.markdown(video_html, unsafe_allow_html=True)
 
     st.write("---")
     st.subheader("Visão Geral das Funcionalidades")
     st.markdown("""
-    - **Gestão de Percentuais:** Ajuste de percentuais de cada assessor   
-    - **Validação:** Diretores aprovam as reduções de percentuais solicitadas pelos líderes
-    - **Painel Analítico:** Métricas e gráficos da interação com a plataforma
-    - **Sugestão de Melhoria:** Envie sugestões de melhorias para a plataforma 
-    - **Ajuda e FAQ:** Ajuda rápida em vídeo e respostas às dúvidas mais comuns
-    - **Spoiler BeSmart:** Página em construção          
+    - **Gestão de Percentuais:** Ajuste de percentuais de cada assessor.
+    - **Validação:** Diretores aprovam as reduções de percentuais solicitadas pelos líderes.
+    - **Painel Analítico:** Métricas e gráficos da interação com a plataforma.
+    - **Sugestão de Melhoria:** Envie sugestões de melhorias para a plataforma.
+    - **Ajuda e FAQ:** Ajuda rápida em vídeo e respostas às dúvidas mais comuns.
+    - **Spoiler BeSmart:** Informações sobre as produções BeSmart, podendo sofrer alterações.
     """)
     if st.button("Entendi, continuar"):
         st.session_state.first_login = False

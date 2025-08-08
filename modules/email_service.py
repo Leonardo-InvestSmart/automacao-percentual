@@ -165,6 +165,43 @@ def send_approval_result(df_changes, lider_email, director_email):
             content_type="HTML"
         )
 
+def send_declaration_email(
+    director_email: str,
+    juridico_email: str,
+    lider_name: str,
+    filial: str,
+    items_html: str,
+    timestamp_display: str
+) -> bool:
+    """
+    Envia e-mail de acato de declaração ao Diretor e ao Jurídico.
+    """
+    assunto = (
+        f"Declaração de Revisão Contratual em {filial} – {timestamp_display}"
+    )
+    conteudo_html = f"""
+    <p>Olá {lider_name},</p>
+    <p>
+      Registramos sua <strong>Declaração de Revisão Contratual</strong> para as alterações abaixo em
+      <strong>{filial}</strong>:
+    </p>
+    <table border="1" cellpadding="4" cellspacing="0">
+      <tr>
+        <th>Assessor</th><th>Produto</th><th>Antes</th>
+        <th>Depois</th><th>Data e Hora</th>
+      </tr>
+      {items_html}
+    </table>
+    <p>Este e-mail também foi enviado para o Departamento Jurídico.</p>
+    """
+    html = _build_email_html(assunto, conteudo_html)
+    return enviar_resumo_email(
+        [director_email, juridico_email],
+        assunto,
+        html,
+        content_type="HTML"
+    )
+
 def _get_logo_data_uri() -> str:
     with open("assets/investsmart_horizontal_branco.png", "rb") as f:
         b64 = base64.b64encode(f.read()).decode()
