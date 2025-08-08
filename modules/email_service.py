@@ -109,10 +109,10 @@ def send_director_request(
     Envia ao Diretor um pedido de validação de redução, com botão e layout da marca.
     Utiliza o mesmo helper (enviar_resumo_email) para garantir autenticação e envio.
     """
-    assunto = f"Validação de redução em {filial}"
+    assunto = f"Validação de alteração em {filial}"
     conteudo_html = f"""
     <p>Olá,</p>
-    <p>O líder <strong>{lider}</strong> solicitou redução do produto <strong>{produto}</strong><br/>
+    <p>O líder <strong>{lider}</strong> solicitou alteração do produto <strong>{produto}</strong><br/>
     de <strong>{antigo}% → {novo}%</strong> para <strong>{assessor}</strong> em <strong>{filial}</strong>.</p>
     <p style=\"text-align:center;margin:2rem 0;\">
       <a href=\"{link}\" style=\"display:inline-block;padding:12px 24px;

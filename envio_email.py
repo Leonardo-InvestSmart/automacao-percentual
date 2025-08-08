@@ -1,139 +1,192 @@
+# envio_email.py
 import pandas as pd
 import win32com.client as win32
 import re
+from typing import Dict, Tuple
 
-from modules.db import carregar_filial
+# mantém o mesmo template visual do e-mail
 from modules.email_service import _build_email_html
 
-def construir_lista_emails():
-    # carrega todas as filiais e filtra um único registro por líder
-    df = (
-        carregar_filial()
-        .dropna(subset=["LIDER", "EMAIL"])
-        .drop_duplicates(subset=["LIDER"], keep="first")
-    )  # :contentReference[oaicite:5]{index=5}
+# -----------------------------------------------------------------------------
+# Carrega secrets: tenta via Streamlit; se não houver, lê secrets.toml local
+# -----------------------------------------------------------------------------
+def _load_secrets() -> Dict:
+    try:
+        import streamlit as st  # type: ignore
+        # st.secrets já funciona como dict
+        return dict(st.secrets)
+    except Exception:
+        import tomllib  # Python 3.11+
+        with open("secrets.toml", "rb") as f:
+            return tomllib.load(f)
 
-    assunto = "Comunicado Comissões - Lançamento da Plataforma SmartC"
+SECRETS = _load_secrets()
+EMAIL_USER = SECRETS.get("EMAIL_USER", "comissoes@investsmart.com.br")
 
-    # texto completo conforme fornecido
-    corpo_base = """
-    <p>Prezados líderes, tudo bem?</p>
-    <p>As 3 diretorias comerciais convidaram vocês para demonstração do novo painel de cadastro de percentuais
-    (repasses) desenvolvido pelo time de comissões. No primeiro momento o foco está 100% na gestão do % dos
-    assessores das filiais e, com o tempo, adicionaremos mais informações úteis aos gestores. Abaixo alguns
-    pontos que vocês devem prestar muita atenção!!!</p>
-    <ol>
-      <li>O prazo limite para ajustes é todo dia 08 do mês. Esse prazo não será possível estender em nenhuma hipótese,
-          então fiquem atentos. Caso você perca esse prazo por qualquer razão, o ajuste do % na plataforma deverá ser
-          acompanhado da abertura de um card via Bitrix. Esse painel envia informações já integradas ao nosso novo
-          processo interno.</li>
-      <li>O acesso à plataforma e seu manuseio exigirá múltiplas confirmações por e-mail. Esse mecanismo, apesar de
-          chato, tem por objetivo dar segurança no manuseio de uma informação tão importante que é o % de repasse.
-          Todas as alterações mandarão e-mails de confirmação e comprovantes, bem como gerarão o log do responsável
-          pela mudança.</li>
-      <li>É possível aumentar o repasse sem aprovação do Diretor, porém a redução se dará somente com aprovação do Diretor.
-          Ainda não temos um mecanismo de integração automática com o jurídico, então qualquer alteração de repasse nesse
-          momento, especialmente a redução, irá requerer do gestor informar ao jurídico para ajuste de contrato via forms.
-          Tentaremos melhorar esse processo o quanto antes para trazer mais comodidade.</li>
-      <li>Não esqueçam que as sugestões de melhoria podem ser inseridas e votadas na plataforma. É uma forma democrática
-          de direcionarmos melhorias.</li>
-    </ol>
-    <p>Link para acessar a plataforma: <a href="https://smartc.streamlit.app/">
-        https://smartc.streamlit.app/<a></p>
-    <p>Deixaremos abaixo um link para dúvidas e solicitações sobre a plataforma. Responderemos o mais rápido possível.</p>
-    <p>Link para dúvidas: <a href="https://forms.cloud.microsoft/r/KWHcWDe61g">
-        https://forms.cloud.microsoft/r/KWHcWDe61g</a></p>
-    <p>Segue abaixo o seu login e senha para acesso à plataforma:</p>
+# Mapas: chaves do secrets por grupo
+GROUP_MAP = {
+    "rms": {
+        "pwd_section": "rms",
+        "email_section": "rm_emails",
+        "assunto": "Comunicado Comissões - Acesso para RM",
+        "template_texto": """
+        <p>Olá, {NOME}, tudo bem?</p>
+        <p>Você recebeu acesso à nova plataforma SmartC, com foco em acompanhamento e suporte às filiais da sua diretoria.</p>
+        <p>Alguns pontos importantes:</p>
+        <ol>
+          <li>O acesso das RM's foi definido somente como leitura.</li>  
+          <li>Prazo-limite para ajustes de percentual: <strong>todo dia 08</strong> de cada mês.</li>
+          <li>O acesso exige confirmações por e-mail para garantir segurança nas mudanças de repasse.</li>
+          <li>Reduções de repasse exigem aprovação do Diretor.</li>
+          <li>Envie melhorias e dúvidas pelo página de sugestões.</li>
+        </ol>
+        <p>Link da plataforma: <a href="https://smartc.streamlit.app/">https://smartc.streamlit.app/</a></p>
+        <p>Dúvidas/Solicitações: <a href="https://forms.cloud.microsoft/r/KWHcWDe61g">https://forms.cloud.microsoft/r/KWHcWDe61g</a></p>
+        <p>Segue abaixo o seu acesso:</p>
+        """
+    },
+    "superintendents": {
+        "pwd_section": "superintendents",
+        "email_section": "superintendent_emails",
+        "assunto": "Comunicado Comissões - Acesso para Superintendência",
+        "template_texto": """
+        <p>Olá, {NOME}, tudo bem?</p>
+        <p>Você recebeu acesso à nova plataforma SmartC para gestão e governança dos percentuais de repasse das filiais sob sua
+        responsabilidade.</p>
+        <p>Regras relevantes:</p>
+        <ol>
+          <li>Prazo-limite para ajustes de percentual: <strong>todo dia 08</strong> de cada mês.</li>
+          <li>O acesso à plataforma e a confirmação das alterações exige confirmações por e-mail para garantir segurança.</li>
+          <li>Reduções de repasse exigem aprovação do Diretor.</li>
+          <li>Envie melhorias e dúvidas pela página de sugestões.</li>
+        </ol>
+        <p>Link da plataforma: <a href="https://smartc.streamlit.app/">https://smartc.streamlit.app/</a></p>
+        <p>Dúvidas/Solicitações: <a href="https://forms.cloud.microsoft/r/KWHcWDe61g">https://forms.cloud.microsoft/r/KWHcWDe61g</a></p>
+        <p>Segue abaixo o seu acesso:</p>
+        """
+    },
+    # (opcional) você pode habilitar diretores aqui também, se quiser
+    "directors": {
+        "pwd_section": "directors",
+        "email_section": "director_emails",
+        "assunto": "Comunicado Comissões - Acesso para Diretoria",
+        "template_texto": """
+        <p>Olá, {NOME}, tudo bem?</p>
+        <p>Concedemos seu acesso ao painel SmartC, com capacidade de aprovar reduções de repasse e acompanhar alterações de gestão.</p>
+        <ol>
+          <li>Prazo-limite para ajustes: <strong>dia 08</strong> de cada mês.</li>
+          <li>Confirmações por e-mail para segurança e trilha de auditoria.</li>
+          <li>Reduções dependem de sua aprovação.</li>
+          <li>Envie melhorias e dúvidas pelo link de sugestões.</li>
+        </ol>
+        <p>Link da plataforma: <a href="https://smartc.streamlit.app/">https://smartc.streamlit.app/</a></p>
+        <p>Dúvidas/Solicitações: <a href="https://forms.cloud.microsoft/r/KWHcWDe61g">https://forms.cloud.microsoft/r/KWHcWDe61g</a></p>
+        <p>Segue abaixo o seu acesso:</p>
+        """
+    },
+}
+
+# -----------------------------------------------------------------------------
+# Montadores de HTML
+# -----------------------------------------------------------------------------
+def _justificar_e_inserir_login(template_texto: str, nome: str, login: str, senha: str) -> str:
+    # margens nos <li>
+    corpo = re.sub(r"<li>", '<li style="margin-bottom:10px;">', template_texto)
+    # bloco final com credenciais
+    credenciais = f"""
+    <p><strong>Login:</strong> {login}<br>
+       <strong>Senha:</strong> {senha}</p>
+    <p>Esse acesso é individual. Não compartilhe suas credenciais.</p>
+    <p>Atenciosamente,<br>Equipe de Comissões</p>
     """
+    return f'<div style="text-align:justify;">{corpo}{credenciais}</div>'
+
+# -----------------------------------------------------------------------------
+# Construção da lista por grupo (rms | superintendents | directors)
+# -----------------------------------------------------------------------------
+def construir_lista_por_grupo(grupo: str) -> Tuple[str, pd.DataFrame]:
+    if grupo not in GROUP_MAP:
+        raise ValueError(f"Grupo inválido: {grupo}. Use: {list(GROUP_MAP.keys())}")
+
+    meta = GROUP_MAP[grupo]
+    pwd_section = SECRETS.get(meta["pwd_section"], {})
+    email_section = SECRETS.get(meta["email_section"], {})
+    assunto = meta["assunto"]
 
     lista = []
-    for _, row in df.iterrows():
-        nome  = row["LIDER"].strip()
-        email = row["EMAIL"].strip()
+    for nome, senha in pwd_section.items():
+        email = email_section.get(nome)
+        if not email:
+            # se faltar e-mail para alguém, pula com aviso
+            print(f"[AVISO] Sem e-mail para '{nome}' em [{meta['email_section']}]. Pulando.")
+            continue
 
-        # agora login = nome do líder (coluna LIDER)
+        # por padrão, usamos o próprio nome como login (mantém consistência com secrets)
         login = nome
-        # gera senha personalizada (mesmo algoritmo anterior)
-        from modules.email_service import gerar_senha_personalizada
-        senha = gerar_senha_personalizada(row["FILIAL"], nome, row["CPF"])
+        corpo = meta["template_texto"].format(NOME=nome)
+        corpo_html = _justificar_e_inserir_login(corpo, nome, login, senha)
+        html_final = _build_email_html(assunto, corpo_html)
 
-        # 1) coloca margem entre itens da lista
-        corpo_base_just = re.sub(
-            r'<li>',
-            '<li style="margin-bottom:10px;">',
-            corpo_base
+        lista.append(
+            {
+                "perfil": grupo,
+                "nome_destinatario": nome,
+                "email_destinatario": email,
+                "login": login,
+                "senha": senha,
+                "corpo_do_email": html_final,
+            }
         )
 
-        # 2) envolve o corpo em DIV justificado
-        corpo_justificado = f'''
-        <div style="text-align:justify;">
-        {corpo_base_just}
-        <p><strong>Login:</strong> {login}<br>
-            <strong>Senha:</strong> {senha}</p>
-        <p>Esse acesso é único e exclusivo da filial, por isso pedimos que não compartilhe com terceiros.</p>
-        <p>Atenciosamente,</p>
-        <p>Equipe de Comissões.</p>
-        </div>
-        '''
+    df = pd.DataFrame(lista)
+    return assunto, df
 
-        # 3) usa o template padrão (inclui header e rodapé originais)
-        html_email = _build_email_html(assunto, corpo_justificado)
-
-
-
-        lista.append({
-            "nome_lider": nome,
-            "email_lider": email,
-            "senha_lider": senha,
-            "corpo_do_email": html_email
-        })
-
-    return assunto, pd.DataFrame(lista)
-
+# -----------------------------------------------------------------------------
+# Utilidades: salvar Excel e enviar/abrir no Outlook
+# -----------------------------------------------------------------------------
 def salvar_excel_validacao(df: pd.DataFrame, path: str = "validacao_emails.xlsx"):
-    df[["nome_lider", "senha_lider", "corpo_do_email"]].to_excel(path, index=False)
+    cols = ["perfil", "nome_destinatario", "login", "senha", "corpo_do_email"]
+    df[cols].to_excel(path, index=False)
     print(f"Arquivo de validação gerado: {path}")
 
 def mostrar_exemplar_outlook(email: str, assunto: str, html: str):
-    outlook = win32.Dispatch('Outlook.Application')
-    mail    = outlook.CreateItem(0)
-
-    # envia em nome de comissoes@investsmart.com.br
-    mail.SentOnBehalfOfName = "comissoes@investsmart.com.br"
-
-    recipient = mail.Recipients.Add(email)
-    recipient.Type = 1   # olTo
-    mail.Subject  = assunto
+    outlook = win32.Dispatch("Outlook.Application")
+    mail = outlook.CreateItem(0)
+    mail.SentOnBehalfOfName = EMAIL_USER
+    mail.To = email
+    mail.Subject = assunto
     mail.HTMLBody = html
     mail.Display()
 
-
-
 def enviar_todos_outlook(df: pd.DataFrame, assunto: str, batch_size: int = 10):
-    outlook = win32.Dispatch('Outlook.Application')
+    outlook = win32.Dispatch("Outlook.Application")
     total = len(df)
     for idx, row in enumerate(df.itertuples(index=False), start=1):
         mail = outlook.CreateItem(0)
-        # …lógica de remetente, se houver…
-        mail.To       = row.email_lider
-        mail.Subject  = assunto
+        mail.SentOnBehalfOfName = EMAIL_USER
+        mail.To = row.email_destinatario
+        mail.Subject = assunto
         mail.HTMLBody = row.corpo_do_email
         mail.Display()
-        print(f"[{idx}/{total}] E-mail preparado para {row.nome_lider} <{row.email_lider}>")
 
-        # a cada batch_size e-mails, pausa e pergunta
+        print(f"[{idx}/{total}] E-mail preparado para {row.nome_destinatario} <{row.email_destinatario}>")
+
         if idx % batch_size == 0 and idx < total:
-            resp = input(f"{idx} e-mails abertos. Digite 'CONTINUAR' para abrir os próximos {batch_size}, ou outra tecla para parar: ").strip().upper()
+            resp = input(
+                f"{idx} e-mails abertos. Digite 'CONTINUAR' para abrir os próximos {batch_size}, ou outra tecla para parar: "
+            ).strip().upper()
             if resp != "CONTINUAR":
                 print("Processo interrompido pelo usuário.")
                 break
 
-
-
+# -----------------------------------------------------------------------------
+# Execução
+# -----------------------------------------------------------------------------
 if __name__ == "__main__":
-    assunto, df_emails = construir_lista_emails()
+    # escolha aqui o grupo que deseja disparar:
+    # opções: "rms", "superintendents", (opcional) "directors"
+    grupo = "superintendents"  # <-- altere para "superintendents" quando quiser
+
+    assunto, df_emails = construir_lista_por_grupo(grupo)
     salvar_excel_validacao(df_emails)
-
-    # abre todos os e-mails em lotes de 10 e pausa por input entre cada lote
     enviar_todos_outlook(df_emails, assunto, batch_size=10)
-

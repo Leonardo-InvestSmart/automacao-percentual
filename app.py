@@ -444,7 +444,11 @@ def main():
         # 6) Fase 2: confirmação do código
         if st.session_state.awaiting_verification:
             # identifica segmento da filial selecionada
-            segmento = df_filial_lider.iloc[0].get("SEGMENTO", "").strip().upper()
+            # identifica segmento da filial selecionada (não pegue iloc[0]!)
+            seg_row = df_filial_lider[
+                df_filial_lider["FILIAL"].str.strip().str.upper() == selected_filial.strip().upper()
+            ].iloc[0]
+            segmento = (seg_row.get("SEGMENTO", "") or "").strip().upper()
 
             # pendências só em B2C (tudo) ou em B2B (somente reduções)
             if segmento == "B2C":
@@ -483,10 +487,11 @@ def main():
                         st.error("Código inválido. Tente novamente.")
                         return
 
-
-                    # 2) grava no log de Alterações (todas as alterações), agora com TIPO
-                    # 2) grava no log de Alterações (todas as alterações), agora com TIPO
-                    segmento = df_filial_lider.iloc[0].get("SEGMENTO", "").strip().upper()
+                    # 2) grava no log de Alterações ...
+                    seg_row = df_filial_lider[
+                        df_filial_lider["FILIAL"].str.strip().str.upper() == selected_filial.strip().upper()
+                    ].iloc[0]
+                    segmento = (seg_row.get("SEGMENTO", "") or "").strip().upper()
                     linhas = []
                     for a in st.session_state.pending_alteracoes:
                         before_str = a["PERCENTUAL ANTES"]
@@ -811,6 +816,12 @@ def main():
             st.dataframe(df_display, use_container_width=True)
 
     elif pagina == "Painel Analítico":
+
+        seg_row = df_filial_lider[
+            df_filial_lider["FILIAL"].str.strip().str.upper() == selected_filial.strip().upper()
+        ].iloc[0]
+        is_b2c = ((seg_row.get("SEGMENTO", "") or "").strip().upper() == "B2C")
+
         display_analytics(
             df_log=df_log,
             df_assessores_filial=df_assessores[
@@ -820,7 +831,7 @@ def main():
             col_perc=col_perc,
             nome_lider=nome_usuario,
             filial_lider=selected_filial,
-            is_b2c=False
+            is_b2c=is_b2c
         )
 
     elif pagina == "Ajuda e FAQ":
@@ -921,7 +932,10 @@ def main():
         df_alt = carregar_alteracoes()
 
         # Captura segmento e define quais tipos incluir
-        segmento = df_filial_lider.iloc[0].get("SEGMENTO", "").strip().upper()
+        seg_row = df_filial_lider[
+            df_filial_lider["FILIAL"].str.strip().str.upper() == selected_filial.strip().upper()
+        ].iloc[0]
+        segmento = (seg_row.get("SEGMENTO", "") or "").strip().upper()
         tipos_validos = ["REDUCAO", "AUMENTO"] if segmento == "B2C" else ["REDUCAO"]
 
         # Filtra apenas registros pendentes de validação
