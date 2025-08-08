@@ -1169,26 +1169,54 @@ def main():
                     pd.to_datetime(df_view["TIMESTAMP"], errors="coerce")
                     .dt.strftime("%d/%m/%Y às %H:%M")
                 )
+                # captura o diretor da filial
+                diretor_nome = df_filial_lider.iloc[0]["DIRETOR"]
+
+                # mantém USUARIO original para gerar a coluna "Solicitante"
                 df_view = df_view.rename(columns={
-                    "USUARIO":            "Diretor",
+                    "USUARIO":            "Solicitante",
                     "ASSESSOR":           "Assessor",
                     "PRODUTO":            "Produto",
                     "PERCENTUAL ANTES":   "Percentual Antes",
                     "PERCENTUAL DEPOIS":  "Percentual Depois",
                     "COMENTARIO DIRETOR": "Comentário do Diretor",
                 })
+
+                # cria coluna Diretor com valor fixo da filial
+                df_view["Diretor"] = diretor_nome
+
+                # identifica o papel do solicitante
+                def _identificar_papel(nome):
+                    nome_up = nome.strip().upper()
+                    if nome_up == str(df_filial_lider.iloc[0]["LIDER"]).strip().upper():
+                        return "LÍDER"
+                    elif nome_up == str(df_filial_lider.iloc[0].get("LIDER2","")).strip().upper():
+                        return "LÍDER 2"
+                    elif nome_up == str(df_filial_lider.iloc[0]["DIRETOR"]).strip().upper():
+                        return "DIRETOR"
+                    elif nome_up == str(df_filial_lider.iloc[0].get("SUPERINTENDENTE","")).strip().upper():
+                        return "SUPERINTENDENTE"
+                    return nome  # fallback
+
+                df_view["Solicitante"] = df_view["Solicitante"].apply(lambda x: f"{_identificar_papel(x)} - {x}")
+
+                # status
                 def _status(row):
                     if row["ALTERACAO APROVADA"] == "SIM":
                         return "Aprovado"
                     if row["ALTERACAO APROVADA"] == "NAO" and isinstance(row["Comentário do Diretor"], str) and row["Comentário do Diretor"].strip():
                         return "Recusado"
                     return "Aguardando..."
+
                 df_view["Resposta Diretor"] = df_view.apply(_status, axis=1)
+
+                # nova ordem de colunas
                 df_view = df_view[[
-                    "Data e Hora", "Diretor", "Assessor", "Produto",
+                    "Data e Hora", "Diretor", "Solicitante", "Assessor", "Produto",
                     "Percentual Antes", "Percentual Depois",
                     "Resposta Diretor", "Comentário do Diretor"
                 ]]
+
                 st.dataframe(df_view, use_container_width=True, hide_index=True)
 
     else:
