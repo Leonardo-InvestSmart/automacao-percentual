@@ -1,96 +1,47 @@
-# -*- coding: utf-8 -*-
-import os
+import time
 import logging
 import pandas as pd
-import psycopg2
-from psycopg2 import sql
+from supabase import create_client
 
-# Configuração do logging
-logging.basicConfig(level=logging.DEBUG,
-                   format="%(asctime)s [%(levelname)s] %(message)s",
-                   datefmt="%Y-%m-%d %H:%M:%S")
+# --- CONFIG ---------------------------------------------------------------
+SUPABASE_URL = "https://lurmzommxpzqrqcscgwi.supabase.co"
+ANON_KEY     = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imx1cm16b21teHB6cXJxY3NjZ3dpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTEzOTU3MzEsImV4cCI6MjA2Njk3MTczMX0.U5KHz-8livKUl2HddJl9cP_4wCGW5QyDVrx7cqW8ekw"                        # mesma chave que o SmartC usa
 
-def conectar_banco_dados():
-    """Estabelece conexão com o banco de dados PostgreSQL"""
-    try:
-        # (A) Remove variáveis de ambiente PG* que podem causar conflitos
-        for k in os.environ:
-            if k.startswith('PG'):
-                os.environ.pop(k, None)
+EMAIL        = "felisberto.torres@investsmart.com.br"
+PASSWORD     = "S3nh4F0rte!123"
 
-        # (B) Configurações de conexão - verifique cuidadosamente cada valor
-        config = {
-            'host': "db.lurmzommxpzqrqcscgwi.supabase.co",
-            'port': 5432,  # como número inteiro
-            'dbname': "postgres",
-            'user': "reader_assessores",
-            'password': "S3nh4F0rte!123",  # ATENÇÃO: verifique caractere por caractere
-            'sslmode': "require",
-            'client_encoding': 'UTF-8'  # força encoding UTF-8
-        }
+TABLE      = "assessores"
+CHUNK_SIZE = 1000
+# -------------------------------------------------------------------------
 
-        # (C) Verificação manual dos parâmetros
-        logging.debug("Parâmetros de conexão:")
-        for k, v in config.items():
-            if k != 'password':
-                logging.debug(f"{k}: {v}")
-            else:
-                logging.debug(f"{k}: {'*' * len(v)}")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
-        # (D) Tentativa de conexão com tratamento extra de encoding
-        logging.debug("Tentando conexão com o banco de dados...")
-        
-        # Tentativa 1: Conexão direta
-        try:
-            conn = psycopg2.connect(**config)
-            logging.debug("Conexão estabelecida com sucesso (método direto)!")
-            return conn
-        except UnicodeError:
-            # Tentativa 2: Conexão com string codificada manualmente
-            logging.debug("Tentando método alternativo para evitar problemas de encoding...")
-            conn_str = (
-                f"host={config['host']} "
-                f"port={config['port']} "
-                f"dbname={config['dbname']} "
-                f"user={config['user']} "
-                f"password={config['password']} "
-                f"sslmode={config['sslmode']}"
-            )
-            conn = psycopg2.connect(conn_str.encode('ascii', errors='ignore').decode('ascii'))
-            logging.debug("Conexão estabelecida com sucesso (método alternativo)!")
-            return conn
+# 1) cliente (HTTPS)
+sb = create_client(SUPABASE_URL, ANON_KEY)
 
-    except Exception as e:
-        logging.error(f"Erro ao conectar ao banco de dados: {str(e)}")
-        return None
+# 2) login (gera token 'authenticated' => policy por UID entra em ação)
+auth_res = sb.auth.sign_in_with_password({"email": EMAIL, "password": PASSWORD})
+assert auth_res.user is not None, f"Falha de autenticação: {auth_res}"
 
-def consultar_assessores(conn):
-    """Executa consulta na tabela de assessores"""
-    try:
-        query = sql.SQL("SELECT * FROM public.assessores LIMIT 5;")
-        df = pd.read_sql(query, conn)
-        return df
-    except Exception as e:
-        logging.error(f"Erro na consulta SQL: {str(e)}")
-        return None
+# 3) leitura paginada
+rows, start = [], 0
+while True:
+    end = start + CHUNK_SIZE - 1
+    logging.info(f"Lendo {TABLE} linhas {start}..{end}")
+    res = sb.table(TABLE).select("*").range(start, end).execute()
 
-# Programa principal
-if __name__ == "__main__":
-    logging.debug("Iniciando script de conexão...")
-    
-    conexao = conectar_banco_dados()
-    
-    if conexao:
-        try:
-            logging.debug("Obtendo dados dos assessores...")
-            dados_assessores = consultar_assessores(conexao)
-            if dados_assessores is not None:
-                print("\nPrimeiras linhas da tabela de assessores:")
-                print(dados_assessores)
-            else:
-                print("Nenhum dado foi retornado da consulta.")
-        finally:
-            conexao.close()
-            logging.debug("Conexão encerrada com sucesso.")
-    else:
-        print("Não foi possível estabelecer conexão com o banco de dados.")
+    # checagem de erro HTTP/RLS
+    status = getattr(res, "status_code", 200)
+    if status and status >= 400:
+        raise RuntimeError(f"Erro HTTP {status}: {getattr(res, 'error', res)}")
+
+    data = res.data or []
+    rows.extend(data)
+    if len(data) < CHUNK_SIZE:
+        break
+    start += CHUNK_SIZE
+    time.sleep(0.1)  # pequeno respiro
+
+df = pd.DataFrame(rows)
+print("Total linhas:", len(df))
+print(df.head())
