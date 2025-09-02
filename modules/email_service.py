@@ -130,40 +130,66 @@ def send_director_request(
         content_type="HTML"
     )
 
-def send_approval_result(df_changes, lider_email, director_email):
+def send_approval_result(df_changes, lider_email):
+    """
+    Envia o e-mail de confirmação de aprovação das reduções.
+    Agora notifica: Líder (solicitante), Diretor (via lider_email como cópia se desejar),
+    Assessor impactado e Solicitante (quando disponível em df_changes).
+    Espera que df_changes contenha as colunas:
+      - EMAIL_ASSESSOR
+      - EMAIL_SOLICITANTE
+    """
+    if df_changes is None or df_changes.empty:
+        return
+
+    # constrói tabela HTML (mantém o que você já tem hoje)
+    linhas = []
     for _, row in df_changes.iterrows():
-        # Define o status com base na checkbox "Aprovado"
-        status = "APROVADA" if row["Aprovado"] else "REJEITADA"
-
-        # Assunto do e-mail incluindo o nome da filial
-        assunto = f"Alteração {status} em {row['FILIAL']}"
-
-        # Monta o corpo HTML da mensagem
-        conteudo_html = f"""
-        <p>Olá,</p>
-        <p>
-          Sua solicitação de alteração foi processada.
-        </p>
-        <p>
-          A alteração de 
-          <strong>{row['PERCENTUAL ANTES']}% → {row['PERCENTUAL DEPOIS']}%</strong>
-          para <strong>{row['ASSESSOR']}</strong> em
-          <strong>{row['FILIAL']}</strong> foi
-          <strong style="color:{'#28a745' if status=='APROVADA' else '#dc3545'};">
-            {status}
-          </strong> pelo Diretor.
-        </p>
-        <p>Obrigado!</p>
-        """
-
-        # Constrói o HTML completo e envia
-        html = _build_email_html(assunto, conteudo_html)
-        enviar_resumo_email(
-            [lider_email, director_email],
-            assunto,
-            html,
-            content_type="HTML"
+        linhas.append(
+            f"<tr>"
+            f"<td>{row.get('ASSESSOR','')}</td>"
+            f"<td>{row.get('PRODUTO','')}</td>"
+            f"<td>{row.get('PERCENTUAL ANTES','')}%</td>"
+            f"<td>{row.get('PERCENTUAL DEPOIS','')}%</td>"
+            f"<td>{row.get('TIMESTAMP','')}</td>"
+            f"</tr>"
         )
+    items_html = "".join(linhas)
+
+    subject = "Confirmação de aprovação de redução de percentual"
+    conteudo_html = f"""
+    <p>As reduções abaixo foram <strong>aprovadas</strong> pelo Diretor:</p>
+    <table border="1" cellpadding="6" cellspacing="0">
+      <thead>
+        <tr>
+          <th>Assessor</th><th>Produto</th><th>Antes</th><th>Depois</th><th>Data/Hora</th>
+        </tr>
+      </thead>
+      <tbody>{items_html}</tbody>
+    </table>
+    """
+
+    html = _build_email_html(subject, conteudo_html)
+
+    # --- NOVO: destinatários ---
+    destinatarios = set()
+    # fallback: sempre inclui o líder logado
+    if lider_email:
+        destinatarios.add(lider_email)
+
+    # pega por linha os e-mails do assessor e do solicitante
+    for _, row in df_changes.iterrows():
+        email_ass = (row.get("EMAIL_ASSESSOR") or "").strip()
+        email_sol = (row.get("EMAIL_SOLICITANTE") or "").strip()
+        if email_ass:
+            destinatarios.add(email_ass)
+        if email_sol:
+            destinatarios.add(email_sol)
+
+    # dispara (HTML)
+    if destinatarios:
+        enviar_resumo_email(list(destinatarios), subject, html, content_type="HTML")
+
 
 def send_declaration_email(
     director_email: str,
@@ -176,22 +202,25 @@ def send_declaration_email(
     """
     Envia e-mail de acato de declaração ao Diretor e ao Jurídico.
     """
-    assunto = (
-        f"Declaração de Revisão Contratual em {filial} – {timestamp_display}"
-    )
+    # email_service.py  (trecho corrigido)
+    assunto = f"Declaração de Revisão Contratual em {filial} – {timestamp_display}"
+
     conteudo_html = f"""
-    <p>Olá {lider_name},</p>
-    <p>
-      Registramos sua <strong>Declaração de Revisão Contratual</strong> para as alterações abaixo em
-      <strong>{filial}</strong>:
-    </p>
+    <h3>Declaração de Revisão Contratual</h3>
+    <p>Eu, <strong>{lider_name}</strong>, declaro que a alteração do percentual de comissionamento ora aprovada por mim foi realizada
+    em conformidade com a contratação existente e formalizada com o respectivo assessor, as diretrizes internas da companhia e
+    com os princípios da boa-fé, legalidade e transparência.</p>
+
+    <p>Segue abaixo a relação dos assessores e percentuais alterados:</p>
+
     <table border="1" cellpadding="4" cellspacing="0">
       <tr>
-        <th>Assessor</th><th>Produto</th><th>Antes</th>
-        <th>Depois</th><th>Data e Hora</th>
+        <th>Assessor</th><th>Produto</th><th>Antes</th><th>Depois</th><th>Data e Hora</th>
       </tr>
       {items_html}
     </table>
+
+    <p>Asseguro que li as cláusulas aplicáveis e assumo responsabilidade sob a ótica da conformidade.</p>
     <p>Este e-mail também foi enviado para o Departamento Jurídico.</p>
     """
     html = _build_email_html(assunto, conteudo_html)
@@ -201,6 +230,7 @@ def send_declaration_email(
         html,
         content_type="HTML"
     )
+
 
 def _get_logo_data_uri() -> str:
     with open("assets/investsmart_horizontal_branco.png", "rb") as f:

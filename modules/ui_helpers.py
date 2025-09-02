@@ -171,7 +171,7 @@ def rodape_customizado():
 
         <div class="custom-footer">
             © 2025 InvestSmart – Todos os direitos reservados. <br>
-            <b>Made by Comissões v1.1.1</b>
+            <b>Made by Comissões v1.2.0</b>
         </div>
         """,
         unsafe_allow_html=True
@@ -204,18 +204,21 @@ def mostrar_tutorial_inicial():
     st.title("Bem-vindo ao SmartC!")
     st.subheader("📢 RELEASE NOTES")
     st.markdown("""
-    ##### **Nova versão:** 1.1.1
+    ##### **Nova versão:** 1.2.0
 
     ##### 🚀 Novas Funcionalidades
-    - Novo acesso para Superintendentes;
-    - Novo acesso para RM's;
-    - Filiais "B2C" demandam aprovação para qualquer alteração de percentual;
-    - Inclusão da "Declaração de Revisão Contratual" para validação das alterações para os diretores, atrelados ao Jurídico;
-    - Inclusão de acessos para Líderes 2.
+    - Criação da página **Comissões**;
+    - Criação da página **Dashboard Admin**;
+    - Na página **Validação**, foram criados mecanismos de auxílio para maior rapidez e análise das solicitações;
+    - Inclusão de **spoiler** de páginas futuras travadas no menu lateral;
+    - Criação de diversos acessos com níveis de hierarquia bem definidos.
 
     ##### 🐛 Correções de Bugs
-    - Layout dos botões de paginação na barra lateral desconfiguraram com a atualização do sistema, por isso mudamos para uma nova versão de layout;
-    - Correção de desempenho da plataforma em conexão com o banco de dados.
+    - Correção do bug em que **Líder 2** não enxergava a filial corretamente;
+    - Atualização da **base de dados**;
+    - Correção do bug em que assessores impactados e usuários solicitantes não recebiam o e-mail de confirmação de alteração;
+    - Inclusão do texto da **Declaração de Alteração Contratual** também no e-mail de confirmação;
+    - Correção do erro na página **Painel Analítico**.
 
     A **Equipe de Comissões** segue empenhada para levar à vocês a melhor experiência possível!
     """, unsafe_allow_html=True)
@@ -230,6 +233,8 @@ def mostrar_tutorial_inicial():
     - **Sugestão de Melhoria:** Envie sugestões de melhorias para a plataforma.
     - **Ajuda e FAQ:** Ajuda rápida em vídeo e respostas às dúvidas mais comuns.
     - **Spoiler BeSmart:** Informações sobre as produções BeSmart, podendo sofrer alterações.
+    - **Comissões:** Página exclusiva para visualização do extrato de comissões, com dados do SplitC.
+    - **Dashboard Admin:** Página exclusiva para administradores, com foco na usabilidade da plataforma como produto.
     """)
     if st.button("Entendi, continuar"):
         st.session_state.first_login = False

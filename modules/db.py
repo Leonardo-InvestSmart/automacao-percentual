@@ -4,17 +4,19 @@ from config import supabase
 from postgrest import APIError
 import numpy as np, math
 
-def _ler_tabela(tabela: str) -> pd.DataFrame:
+def _ler_tabela(tabela: str, columns: list[str] | None = None) -> pd.DataFrame:
+
     chunk_size = 1000
     todos: list[dict] = []
     start = 0
 
+    select_expr = "*" if not columns else ",".join(columns)
+
     while True:
-        # busca um “chunk” de até chunk_size linhas
         resp = (
             supabase
             .table(tabela)
-            .select("*")
+            .select(select_expr)
             .range(start, start + chunk_size - 1)
             .execute()
         )
@@ -22,16 +24,12 @@ def _ler_tabela(tabela: str) -> pd.DataFrame:
         if not data:
             break
         todos.extend(data)
-        # se veio menos que o tamanho do chunk, acabou
         if len(data) < chunk_size:
             break
-        # senão, avança o ponteiro
         start += chunk_size
 
-    # monta o DataFrame com tudo
     df = pd.DataFrame(todos)
-    # garante que todos os nomes de coluna sejam strings antes de aplicar upper()
-    df.columns = [ str(col).upper() for col in df.columns ]
+    df.columns = [str(col).upper() for col in df.columns]
     return df
 
 def carregar_filial() -> pd.DataFrame:
@@ -40,8 +38,28 @@ def carregar_filial() -> pd.DataFrame:
 def carregar_assessores() -> pd.DataFrame:
     return _ler_tabela("assessores")
 
+def carregar_sugestoes() -> list[dict]:
+    df = _ler_tabela("sugestoes")
+    return df.to_dict(orient="records")
+
 def carregar_alteracoes() -> pd.DataFrame:
     return _ler_tabela("alteracoes")
+
+def carregar_acessos() -> pd.DataFrame:
+    return _ler_tabela("acessos")
+
+def registrar_acesso(usuario: str, role: str, nivel: int | None = None) -> None:
+    payload = {
+        "TIMESTAMP": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "USUARIO":   usuario,
+        "ROLE":      role
+    }
+    if nivel is not None:
+        payload["NIVEL"] = int(nivel)
+    try:
+        supabase.table("acessos").insert(payload).execute()
+    except APIError as e:
+        raise Exception(f"Erro ao registrar acesso: {e}")
 
 def inserir_alteracao_log(linhas: list[list]) -> None:
     # 1) Defina as colunas do payload (sem ID)
@@ -80,9 +98,34 @@ def inserir_alteracao_log(linhas: list[list]) -> None:
         rec["ID"] = last_id + idx
         data.append(rec)
 
-    # 4) Insira no Supabase
+    # 4) Evita duplicatas: só insere o que não existe
     try:
-        supabase.table("alteracoes").insert(data).execute()
+        data_unique = []
+        for rec in data:
+            # critério de unicidade: FILIAL, ASSESSOR, PRODUTO,
+            # PERCENTUAL ANTES, PERCENTUAL DEPOIS,
+            # VALIDACAO NECESSARIA, ALTERACAO APROVADA, TIPO
+            q = (
+                supabase.table("alteracoes")
+                .select("ID")
+                .eq("FILIAL",               rec["FILIAL"])
+                .eq("ASSESSOR",             rec["ASSESSOR"])
+                .eq("PRODUTO",              rec["PRODUTO"])
+                .eq("PERCENTUAL ANTES",     rec["PERCENTUAL ANTES"])
+                .eq("PERCENTUAL DEPOIS",    rec["PERCENTUAL DEPOIS"])
+                .eq("VALIDACAO NECESSARIA", rec["VALIDACAO NECESSARIA"])
+                .eq("ALTERACAO APROVADA",   rec["ALTERACAO APROVADA"])
+                .eq("TIPO",                 rec["TIPO"])
+                .limit(1)
+                .execute()
+            )
+            if not q.data:
+                data_unique.append(rec)
+
+        if data_unique:
+            supabase.table("alteracoes").insert(data_unique).execute()
+        # se tudo já existia, não insere
+
     except APIError as e:
         raise Exception(f"Erro ao inserir log de alteracoes: {e}")
 
@@ -130,10 +173,6 @@ def atualizar_alteracao_log(row_id: int, coluna: str, valor) -> None:
             .execute()
     except APIError as e:
         raise Exception(f"Erro ao atualizar log de alteração: {e}")
-
-def carregar_sugestoes() -> list[dict]:
-    df = _ler_tabela("sugestoes")
-    return df.to_dict(orient="records")
 
 def adicionar_sugestao(texto: str, autor: str) -> None:
     # 1) Busca o maior ID atual

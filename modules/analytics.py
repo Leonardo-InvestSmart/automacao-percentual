@@ -12,8 +12,12 @@ def display_analytics(
     col_perc,
     nome_lider,
     filial_lider,
-    is_b2c
+    is_b2c,
+    role,
+    level
 ):
+    
+    
     # — parse de Timestamp, drop de timezone e eliminação de linhas inválidas —
     df_log["TIMESTAMP"] = df_log["TIMESTAMP"].astype(str).str.strip()
     df_log["DataHora"] = pd.to_datetime(
@@ -56,15 +60,14 @@ def display_analytics(
         st.error("Data de término não pode ser anterior à de início")
     st.markdown("<div style='margin-bottom:2rem;'></div>", unsafe_allow_html=True)
 
-
-
-    # — aplica o filtro dinâmico de usuário, filial e período —
-    mask = (
-        (df_log["USUARIO"].str.upper() == nome_lider.strip().upper()) &
+    base_mask = (
         (df_log["FILIAL"].str.upper() == filial_lider.strip().upper()) &
         (df_log["DataHora"].dt.date >= start_date) &
         (df_log["DataHora"].dt.date <= end_date)
     )
+
+    mask = base_mask
+
     df_periodo = df_log.loc[mask].copy()
 
 
@@ -73,13 +76,18 @@ def display_analytics(
     one_month_ago  = pd.to_datetime(end_date) - pd.DateOffset(months=1)
     alt_last_month = df_periodo[df_periodo["DataHora"] >= one_month_ago].shape[0]
 
-    # — Média geral dos percentuais da filial —
-    media_percentual = (
-        df_assessores_filial[col_perc]
-        .applymap(parse_valor_percentual)
-        .stack()
-        .mean()
-    ) * 100
+    # Média geral dos percentuais da filial (robusto a falta de colunas)
+    cols_validos = [c for c in col_perc if c in df_assessores_filial.columns]
+
+    if cols_validos:
+        media_percentual = (
+            df_assessores_filial[cols_validos]
+            .applymap(parse_valor_percentual)
+            .stack()
+            .mean()
+        ) * 100
+    else:
+        media_percentual = 0.0
 
     # — Variação média (%) das alterações no período —
     variacoes = []
@@ -116,42 +124,53 @@ def display_analytics(
 
     st.markdown("---")
 
-        # — Novo: histórico de alterações feitas pelo líder —
-    st.markdown("**Histórico de Alterações de Percentual do Líder**")
+    # — Histórico de alterações da filial (com quem fez) —
+    st.markdown("**Histórico de Alterações de Percentual da Filial**")
 
-    df_hist = df_periodo.loc[
-        (df_periodo["USUARIO"].str.upper() == nome_lider.strip().upper()) &
-        (df_periodo["FILIAL"].str.upper() == filial_lider.strip().upper()) &
-        (df_periodo["VALIDACAO NECESSARIA"] == "NAO"),  # só as alterações que já passaram por validação
-        ["DataHora", "ASSESSOR", "PRODUTO", "PERCENTUAL ANTES", "PERCENTUAL DEPOIS", "ALTERACAO APROVADA"]
+    # inclui TODAS as alterações do período/filial (sem filtrar VALIDACAO)
+    df_hist = df_log.loc[
+        base_mask,
+        [
+            "DataHora", "USUARIO", "ASSESSOR", "PRODUTO",
+            "PERCENTUAL ANTES", "PERCENTUAL DEPOIS",
+            "VALIDACAO NECESSARIA", "ALTERACAO APROVADA", "COMENTARIO DIRETOR"
+        ]
     ].copy()
 
     # formata data e hora
     df_hist["Data e Hora"] = df_hist["DataHora"].dt.strftime("%d/%m/%Y às %H:%M:%S")
 
-    # mapeia aprovação:
-    df_hist["Aprovação do Diretor"] = df_hist.apply(
-        lambda row: (
-            "Não foi necessário"
-            if row["ALTERACAO APROVADA"] == "NAO" and
-            parse_valor_percentual(str(row["PERCENTUAL DEPOIS"])) >=
-            parse_valor_percentual(str(row["PERCENTUAL ANTES"]))
-            else ("Aprovado" if row["ALTERACAO APROVADA"] == "SIM" else "Recusado")
-        ),
-        axis=1
-    )
+    # status de aprovação do diretor (cobre pendente/aprovado/recusado/não necessário)
+    def _status(row):
+        if str(row["VALIDACAO NECESSARIA"]).upper() == "SIM":
+            return "Aguardando aprovação"
+        # VALIDACAO == NAO
+        if str(row["ALTERACAO APROVADA"]).upper() == "SIM":
+            return "Aprovado"
+        # Não aprovado e não precisa mais de validação → ou foi recusado, ou não era necessário
+        old_v = parse_valor_percentual(str(row["PERCENTUAL ANTES"]))
+        new_v = parse_valor_percentual(str(row["PERCENTUAL DEPOIS"]))
+        if new_v >= old_v:
+            return "Não foi necessário"
+        return "Recusado"
 
-    # reorganiza e renomeia colunas
+    df_hist["Aprovação do Diretor"] = df_hist.apply(_status, axis=1)
+
+    # organiza, renomeia e ordena por DataHora (mais recente primeiro)
     df_hist = df_hist[[
-        "Data e Hora", "ASSESSOR", "PRODUTO",
+        "Data e Hora", "USUARIO", "ASSESSOR", "PRODUTO",
         "PERCENTUAL ANTES", "PERCENTUAL DEPOIS", "Aprovação do Diretor"
-    ]]
-    df_hist.columns = [
-        "Data e Hora", "Nome do Assessor", "Produto",
-        "Percentual Antes", "Percentual Depois", "Aprovação do Diretor"
-    ]
+    ]].rename(columns={
+        "USUARIO": "Usuário",
+        "ASSESSOR": "Nome do Assessor",
+        "PRODUTO": "Produto",
+        "PERCENTUAL ANTES": "Percentual Antes",
+        "PERCENTUAL DEPOIS": "Percentual Depois"
+    }).sort_values("Data e Hora", ascending=False)
 
     st.dataframe(df_hist, use_container_width=True, hide_index=True)
+
+
 
     st.markdown("---")
 

@@ -12,6 +12,18 @@ from modules.email_service import (
     enviar_codigo_email
 )
 from config import TENANT_ID, CLIENT_ID, CLIENT_SECRET, EMAIL_USER
+from modules.db import registrar_acesso
+
+LEVEL_BY_ROLE = {
+    "admin": 1,
+    "rh": 2,
+    "director": 3,
+    "superintendent": 4,
+    "leader": 4,
+    "leader2": 4,
+    "rm": 5,
+    "comissoes": 6,
+}
 
 def do_login_stage1():
     st.subheader("Faça login")
@@ -28,7 +40,81 @@ def do_login_stage1():
         st.error("Informe usuário e senha para prosseguir.")
         return
 
-    # 1) Primeiro, tenta autenticar como Diretor com OTP
+    # 1) Tenta como ADMIN (OTP por e-mail)
+    admins = st.secrets.get("admins", {})
+    found_admin = next(
+        (k for k in admins if k.strip().upper() == user.upper()),
+        None
+    )
+    if found_admin:
+        if pwd != admins[found_admin]:
+            st.error("Senha de Admin inválida.")
+            return
+        code = f"{random.randint(0, 999999):06d}"
+        admin_email = st.secrets["admin_emails"][found_admin]
+        if enviar_codigo_email(admin_email, found_admin, code):
+            st.session_state.confirmation_code = code
+            st.session_state.temp_dados = {
+                "LIDER":       found_admin.strip(),
+                "EMAIL_LIDER": admin_email
+            }
+            st.session_state.role        = "admin"
+            st.session_state.level = 1
+            st.session_state.login_stage = 2
+            st.info("Código de verificação enviado para seu e-mail de Admin.")
+        else:
+            st.error("Não foi possível enviar o código de verificação ao Admin.")
+        return
+    
+    # 1.25) RH (OTP por e-mail) - nível 2
+    rh_users = st.secrets.get("rh", {})
+    found_rh = next((k for k in rh_users if k.strip().upper() == user.upper()), None)
+    if found_rh:
+        if pwd != rh_users[found_rh]:
+            st.error("Senha de RH inválida.")
+            return
+        code = f"{random.randint(0, 999999):06d}"
+        rh_email = st.secrets["rh_emails"][found_rh]
+        if enviar_codigo_email(rh_email, found_rh, code):
+            st.session_state.confirmation_code = code
+            st.session_state.temp_dados = {
+                "LIDER":       found_rh.strip(),
+                "EMAIL_LIDER": rh_email
+            }
+            st.session_state.role        = "rh"
+            st.session_state.level       = 2   # ✅ RH = nível 2
+            st.session_state.login_stage = 2
+            st.info("Código de verificação enviado para seu e-mail (RH).")
+        else:
+            st.error("Não foi possível enviar o código de verificação (RH).")
+        return
+    
+    # 1.3) Comissões (OTP por e-mail) - nível 6
+    com_users = st.secrets.get("comissoes", {})
+    found_com = next((k for k in com_users if k.strip().upper() == user.upper()), None)
+    if found_com:
+        if pwd != com_users[found_com]:
+            st.error("Senha de Comissões inválida.")
+            return
+        code = f"{random.randint(0, 999999):06d}"
+        com_email = st.secrets["comissoes_emails"][found_com]
+        if enviar_codigo_email(com_email, found_com, code):
+            st.session_state.confirmation_code = code
+            st.session_state.temp_dados = {
+                "LIDER":       found_com.strip(),
+                "EMAIL_LIDER": com_email
+            }
+            st.session_state.role        = "comissoes"
+            st.session_state.level       = 6   # ✅ Comissões = nível 6 (leitura global)
+            st.session_state.login_stage = 2
+            st.info("Código de verificação enviado para seu e-mail (Comissões).")
+        else:
+            st.error("Não foi possível enviar o código de verificação (Comissões).")
+        return
+
+
+
+    # 1.35) Diretor (OTP por e-mail)
     directors = st.secrets["directors"]  # { "NOME": "senha", ... }
     found_dir = next(
         (k for k in directors if k.strip().upper() == user.upper()),
@@ -47,6 +133,7 @@ def do_login_stage1():
                 "EMAIL_LIDER": diretor_email
             }
             st.session_state.role        = "director"
+            st.session_state.level = 3
             st.session_state.login_stage = 2
             st.info("Código de verificação enviado para seu e-mail de Diretor.")
         else:
@@ -72,6 +159,7 @@ def do_login_stage1():
                 "EMAIL_LIDER": rm_email
             }
             st.session_state.role        = "rm"
+            st.session_state.level = 5
             st.session_state.login_stage = 2
             st.info("Código de verificação enviado para seu e-mail de RM.")
         else:
@@ -97,6 +185,7 @@ def do_login_stage1():
                 "EMAIL_LIDER": sup_email
             }
             st.session_state.role        = "superintendent"
+            st.session_state.level = 4
             st.session_state.login_stage = 2
             st.info("Código de verificação enviado para seu e-mail de Superintendente.")
         else:
@@ -128,6 +217,8 @@ def do_login_stage1():
                     "CPF_LIDER":   row["CPF"],
                     "EMAIL_LIDER": row["EMAIL"]
                 }
+                st.session_state.role = "leader"
+                st.session_state.level = 4
                 break
 
     # -> Líder 2
@@ -147,8 +238,9 @@ def do_login_stage1():
                         "CPF_LIDER":    row["CPF_LIDER2"],
                         "EMAIL_LIDER":  row["EMAIL_LIDER2"]
                     }
-                    # opcional: distinguir a role interna
+                    # distinguir a role interna
                     st.session_state.role = "leader2"
+                    st.session_state.level = 4
                     break
 
     if not valid:
@@ -180,9 +272,15 @@ def do_login_stage2():
         if code_input == st.session_state.confirmation_code:
             st.session_state.autenticado = True
             st.session_state.dados_lider = st.session_state.temp_dados
+            # salva quem é o usuário e role atual
+            registrar_acesso(
+                usuario=st.session_state.dados_lider["LIDER"],
+                role=st.session_state.get("role", ""),
+                nivel=st.session_state.get("level", None)
+            )
             st.success("Login completo! Bem-vindo.")
-            time.sleep(3)   # pausa 3s
-            return          # sai e recarrega já logado, liberando o app
+            time.sleep(3)
+            return        # sai e recarrega já logado, liberando o app
         else:
             st.error("Código incorreto. Tente novamente.")
 

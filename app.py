@@ -32,8 +32,9 @@ from modules.formatters import (
     formatar_percentual_para_planilha,
     formatar_para_exibir
 )
-
+from modules.admin_dashboard import display_admin_dashboard
 from modules.analytics import display_analytics
+from modules.comissoes import display_comissoes, _carregar_comissoes_filial
 from modules.db import (
   carregar_filial,
   carregar_assessores,
@@ -106,6 +107,12 @@ def main():
         df_filial     = get_filiais()
         df_assessores = get_assessores()
         df_log        = get_log()
+
+        # 🔥 Pré‑aquece o cache de comissões (1ª visita fica instantânea)
+        try:
+            _ = _carregar_comissoes_filial()
+        except Exception:
+            pass  # não quebra o app se falhar aqui
     except httpx.RemoteProtocolError:
         # 2) mostre erro amigável e pare o app sem stack-trace
         st.error(
@@ -126,29 +133,33 @@ def main():
 
     # ── Filiais do usuário (Diretor, RM ou Líder) ──
     nome_usuario = st.session_state.dados_lider["LIDER"]
-    role        = st.session_state.role
+    role  = st.session_state.role
+    level = st.session_state.get("level", 5)  # default mais restrito
 
-    if role == "director":
-        df_filial_lider = df_filial[
-            df_filial["DIRETOR"].str.strip().str.upper() == nome_usuario.strip().upper()
-        ]
-    elif role == "rm":
-        df_filial_lider = df_filial[
-            df_filial["RM"].str.strip().str.upper() == nome_usuario.strip().upper()
-        ]
-    elif role == "superintendent":
-        df_filial_lider = df_filial[
-            df_filial["SUPERINTENDENTE"].str.strip().str.upper() == nome_usuario.strip().upper()
-        ]
-    elif role in ("leader", "leader2"):
-        coluna = "LIDER"   if role == "leader" else "LIDER2"
-        df_filial_lider = df_filial[
-            df_filial[coluna].str.strip().str.upper() == nome_usuario.strip().upper()
-        ]
-
+    if level in (1, 2, 6):
+        # Níveis 1 e 2 enxergam TODAS as filiais
+        df_filial_lider = df_filial.copy()
     else:
-        st.error("Role desconhecida. Contate o time de Comissões.")
-        st.stop()
+        nome_usuario = st.session_state.dados_lider["LIDER"]
+        nome_up = str(nome_usuario or "").strip().upper()
+
+        if level == 3:  # Diretor
+            df_filial_lider = df_filial[
+                df_filial["DIRETOR"].astype(str).str.strip().str.upper() == nome_up
+            ]
+        elif level == 4:
+            if role == "superintendent":
+                df_filial_lider = df_filial[df_filial["SUPERINTENDENTE"].str.strip().str.upper() == nome_up]
+            else:  # leader / leader2
+                coluna = "LIDER" if role == "leader" else "LIDER2"
+                df_filial_lider = df_filial[df_filial[coluna].str.strip().str.upper() == nome_up]
+        elif level == 5:  # RM
+            df_filial_lider = df_filial[df_filial["RM"].str.strip().str.upper() == nome_up]
+        else:
+            st.error("Nível de acesso desconhecido. Contate Comissões.")
+            st.stop()
+
+
 
     filiais_do_lider = (
         df_filial_lider["FILIAL"]
@@ -166,8 +177,22 @@ def main():
         "Painel Analítico",
         "Sugestão de Melhoria",
         "Ajuda e FAQ",
-        "Spoiler BeSmart (Em Construção)"
+        "Spoiler BeSmart",
+        "Comissões"
     ]
+    if level == 1:
+        pages.insert(0, "Dashboard Admin")
+
+    # 🔒 páginas-teaser (apenas para aparecer na sidebar)
+    coming_soon = [
+        "Comissão detalhada",
+        "Investimento de Filiais",
+        "DRE Filiais",
+        "Visão do Assessor",
+        "Recebíveis",
+    ]
+    pages = pages + coming_soon  # exibidas no final do menu
+
     if "pagina" not in st.session_state:
         st.session_state.pagina = pages[0]
 
@@ -181,29 +206,51 @@ def main():
 
     with st.sidebar:
 
+        # ícones por página (ordem independente da inserção de novas páginas)
+        sidebar_icon_map = {
+            "Dashboard Admin": "speedometer2",
+            "Gestão de Percentuais": "grid",
+            "Validação": "check2-square",
+            "Painel Analítico": "bar-chart-line",
+            "Sugestão de Melhoria": "lightbulb",
+            "Ajuda e FAQ": "question-circle",
+            "Spoiler BeSmart": "megaphone",
+            "Comissões": "currency-dollar",
+            # 🔒 ícones para as páginas travadas
+            "Comissão detalhada": "lock-fill",
+            "Investimento de Filiais": "lock-fill",
+            "DRE Filiais": "lock-fill",
+            "Visão do Assessor": "lock-fill",
+            "Recebíveis": "lock-fill",
+        }
+        icons_for_pages = [sidebar_icon_map.get(p, "circle") for p in pages]
+
         # menu customizado
+        # 🔧 CSS: os 5 últimos itens do menu (coming_soon) ficam cinza + desabilitados
+        st.sidebar.markdown("""
+        <style>
+        /* Itens "em breve" aparecem cinza, mas continuam clicáveis */
+        section[data-testid="stSidebar"] ul.nav.nav-pills.flex-column li:nth-last-child(-n+5) a {
+            color: #9aa !important;
+            opacity: 0.85 !important;
+        }
+        section[data-testid="stSidebar"] ul.nav.nav-pills.flex-column li:nth-last-child(-n+5) a .bi {
+            color: #9aa !important;
+            opacity: 0.85 !important;
+        }
+        </style>
+        """, unsafe_allow_html=True)
+
         pagina_escolhida = option_menu(
             menu_title=None,
             options=pages,
-            icons=[  # ou crie um dicionário page_icons e passe icons=[...]
-                "grid", "check2-square", "bar-chart-line", "lightbulb",
-                "question-circle", "megaphone"
-            ],
+            icons=icons_for_pages,
             default_index=pages.index(st.session_state.get("pagina", pages[0])),
             styles={
                 "container": {"padding": "0!important", "background-color": "#9966ff"},
                 "icon":      {"font-size": "16px"},
-                "nav-link": {
-                    "font-size": "14px",
-                    "text-align": "left",
-                    "margin": "0px",
-                    "padding": "8px 16px",
-                },
-                "nav-link-selected": {
-                    "background-color": "#121212",
-                    "font-weight": "bold",
-                    "font-size": "14px",
-                },
+                "nav-link":  {"font-size": "14px", "text-align": "left", "margin": "0px", "padding": "8px 16px"},
+                "nav-link-selected": {"background-color": "#121212", "font-weight": "bold", "font-size": "14px"},
             },
         )
 
@@ -214,7 +261,7 @@ def main():
                 st.session_state.clear()
                 st.rerun()
 
-        # atualiza página e dispara rerun
+        # 🔒 guarda: se por qualquer motivo o clique passar, não troca de página
         if st.session_state.get("pagina") != pagina_escolhida:
             st.session_state.pagina = pagina_escolhida
             st.rerun()
@@ -224,12 +271,14 @@ def main():
 
     # — Título dinâmico no topo da área principal —
     page_icons = {
+        "Dashboard Admin":        "📊",
         "Gestão de Percentuais":  "💼",
-        "Painel Analítico":       "📊",
+        "Painel Analítico":       "📈",
         "Validação":              "✅",
         "Sugestão de Melhoria":   "💡",
         "Ajuda e FAQ":            "❓",
-        "Spoiler BeSmart (Em Construção)":        "📢"
+        "Spoiler BeSmart":        "📢",
+        "Comissões":               "💲"
     }
     icon = page_icons.get(pagina, "")
     st.markdown(
@@ -237,42 +286,70 @@ def main():
         unsafe_allow_html=True
     )
 
-    if pagina not in ["Ajuda e FAQ", "Sugestão de Melhoria"]:
-        # — Seletor de filial com label no mesmo estilo da saudação —
+    if pagina not in ["Ajuda e FAQ", "Sugestão de Melhoria", "Dashboard Admin"] and pagina not in coming_soon:
+        # — Seletor de filial —
         st.markdown(
             """
             <div style="
-                font-size:17px;
-                color:#000000;
-                font-weight:600;      /* mesmo peso visual da saudação */
-                margin: 0 0 -3.7rem 0;
-            ">
+                font-size:17px;color:#000;font-weight:600;margin: 0 0 -3.7rem 0;">
                 Selecione a filial para gerenciar:
             </div>
             """,
             unsafe_allow_html=True
         )
-        # — se não tiver nenhuma, avisa e para o fluxo —
         if not filiais_do_lider:
             st.warning("Nenhuma filial disponível para este usuário.")
             st.stop()
 
-        # Recupera do session_state (ou usa o primeiro da lista, se ainda não existir)
-        default = st.session_state.get("filial_selecionada", filiais_do_lider[0])
-        # Garante que o default exista na lista
-        initial_index = filiais_do_lider.index(default) if default in filiais_do_lider else 0
+        # 🔎 Se for a página Validação, filtrar opções para 'filiais com pendência'
+        if pagina == "Validação":
+            df_alt_full = get_log()  # mesma fonte usada abaixo
+            # Mapa FILIAL -> SEGMENTO (para regra de tipo por segmento)
+            seg_por_filial = (
+                df_filial.assign(FILIAL=df_filial["FILIAL"].astype(str).str.upper().str.strip())
+                        .set_index("FILIAL")["SEGMENTO"]
+                        .astype(str).str.upper().str.strip()
+                        .to_dict()
+            )
+            # máscara base de pendência (independente de filial)
+            base_mask = (
+                (df_alt_full["VALIDACAO NECESSARIA"] == "SIM") &
+                (df_alt_full["ALTERACAO APROVADA"] == "NAO") &
+                (df_alt_full["COMENTARIO DIRETOR"].isna() | (df_alt_full["COMENTARIO DIRETOR"].str.strip() == ""))
+            )
+            df_alt_base = df_alt_full.loc[base_mask].copy()
+
+            filiais_com_pend = []
+            for f in filiais_do_lider:
+                f_up = str(f).strip().upper()
+                segmento = (seg_por_filial.get(f_up, "") or "").strip().upper()
+                tipos_validos = ["REDUCAO", "AUMENTO"] if segmento == "B2C" else ["REDUCAO"]
+                qtd = df_alt_base[
+                    (df_alt_base["FILIAL"].str.strip().str.upper() == f_up) &
+                    (df_alt_base["TIPO"].isin(tipos_validos))
+                ].shape[0]
+                if qtd > 0:
+                    filiais_com_pend.append(f)
+
+            opcoes_filial = filiais_com_pend if filiais_com_pend else filiais_do_lider
+        else:
+            opcoes_filial = filiais_do_lider
+
+        default = st.session_state.get("filial_selecionada", opcoes_filial[0])
+        initial_index = opcoes_filial.index(default) if default in opcoes_filial else 0
 
         selected_filial = st.selectbox(
             "",
-            filiais_do_lider,
+            opcoes_filial,
             key="filial_selecionada",
             index=initial_index
         )
-        # — Saudação —
+        # 🔧 normalize uma única vez e reutilize
+        selected_filial_up = str(selected_filial or "").strip().upper()
         st.markdown(f"Olá, **{nome_usuario}**! Você está gerenciando a filial **{selected_filial}**.")
     else:
-        # Em “Ajuda” não precisamos de filial
         selected_filial = None
+
 
     if pagina == "Gestão de Percentuais":
 
@@ -295,7 +372,7 @@ def main():
         # 1) Teto de Percentuais
         st.subheader("Teto de Percentuais para esta Filial")
         teto_row = df_filial_lider[
-            df_filial_lider["FILIAL"].str.strip().str.upper() == selected_filial.strip().upper()
+            df_filial_lider["FILIAL"].astype(str).str.strip().str.upper() == selected_filial_up
         ].iloc[0]
         df_teto = pd.DataFrame([{
             "FILIAL": teto_row["FILIAL"],
@@ -310,7 +387,7 @@ def main():
         # 2) Percentuais dos assessores (sem CPF, EMAIL nem ID)
         st.subheader("Percentuais dos Assessores da sua Filial")
         df_ass_filial = df_assessores[
-            df_assessores["FILIAL"].str.strip().str.upper() == selected_filial.strip().upper()
+            df_assessores["FILIAL"].astype(str).str.strip().str.upper() == selected_filial_up
         ].copy()
         for p in col_perc:
             df_ass_filial[p] = df_ass_filial[p].apply(formatar_para_exibir)
@@ -327,13 +404,10 @@ def main():
             st.session_state.last_filial = selected_filial
             st.session_state.df_current  = df_editor_initial.copy()
 
-        # ── Se for RM, só leitura ──
-        if st.session_state.role == "rm":
+        # ── Leitura somente: RM (nível 5) e Comissões (nível 6) ──
+        if level in (5, 6):
             st.info("Acesso apenas para visualização de percentuais.")
-            st.dataframe(
-                df_ass_filial[display_cols],
-                use_container_width=True
-            )
+            st.dataframe(df_ass_filial[display_cols], use_container_width=True)
             return
 
         # 3) Editor dentro de um form: só reruna ao submeter
@@ -383,14 +457,23 @@ def main():
                                 )
                             else:
                                 # para B2C (ou abaixo do teto), registra a alteração
-                                pend = df_log[
-                                    (df_log["USUARIO"].str.upper() == nome_usuario.strip().upper()) &
-                                    (df_log["FILIAL"].str.upper() == selected_filial.strip().upper()) &
-                                    (df_log["ASSESSOR"] == nome_ass) &
-                                    (df_log["PRODUTO"] == p) &
-                                    (df_log["VALIDACAO NECESSARIA"] == "SIM") &
-                                    (df_log["ALTERACAO APROVADA"] == "NAO")
-                                ]
+                                if st.session_state.role in ("leader", "leader2"):
+                                    pend = df_log[
+                                        (df_log["USUARIO"].astype(str).str.strip().str.upper() == str(nome_usuario or "").strip().upper()) &
+                                        (df_log["FILIAL"].astype(str).str.strip().str.upper() == selected_filial_up) &
+                                        (df_log["ASSESSOR"].astype(str) == str(nome_ass)) &
+                                        (df_log["PRODUTO"].astype(str)  == str(p)) &
+                                        (df_log["VALIDACAO NECESSARIA"] == "SIM") &
+                                        (df_log["ALTERACAO APROVADA"]   == "NAO")
+                                    ]
+                                else:
+                                    pend = df_log[
+                                        (df_log["FILIAL"].astype(str).str.strip().str.upper() == selected_filial_up) &
+                                        (df_log["ASSESSOR"].astype(str) == str(nome_ass)) &
+                                        (df_log["PRODUTO"].astype(str)  == str(p)) &
+                                        (df_log["VALIDACAO NECESSARIA"] == "SIM") &
+                                        (df_log["ALTERACAO APROVADA"]   == "NAO")
+                                    ]
                                 if not pend.empty:
                                     st.error(
                                         f"O percentual **{p}** de **{nome_ass}** já está em análise e não pode ser alterado."
@@ -446,9 +529,9 @@ def main():
             # identifica segmento da filial selecionada
             # identifica segmento da filial selecionada (não pegue iloc[0]!)
             seg_row = df_filial_lider[
-                df_filial_lider["FILIAL"].str.strip().str.upper() == selected_filial.strip().upper()
+                df_filial_lider["FILIAL"].astype(str).str.strip().str.upper() == selected_filial_up
             ].iloc[0]
-            segmento = (seg_row.get("SEGMENTO", "") or "").strip().upper()
+            segmento = str(seg_row.get("SEGMENTO") or "").strip().upper()
 
             # pendências só em B2C (tudo) ou em B2B (somente reduções)
             if segmento == "B2C":
@@ -489,9 +572,9 @@ def main():
 
                     # 2) grava no log de Alterações ...
                     seg_row = df_filial_lider[
-                        df_filial_lider["FILIAL"].str.strip().str.upper() == selected_filial.strip().upper()
+                        df_filial_lider["FILIAL"].astype(str).str.strip().str.upper() == selected_filial_up
                     ].iloc[0]
-                    segmento = (seg_row.get("SEGMENTO", "") or "").strip().upper()
+                    segmento = str(seg_row.get("SEGMENTO") or "").strip().upper()
                     linhas = []
                     for a in st.session_state.pending_alteracoes:
                         before_str = a["PERCENTUAL ANTES"]
@@ -570,8 +653,8 @@ def main():
                                     supabase
                                     .table("assessores")
                                     .select("ID")
-                                    .eq("NOME", alt["NOME"].strip())
-                                    .eq("FILIAL", selected_filial.strip().upper())
+                                    .eq("NOME", str(alt["NOME"] or "").strip())
+                                    .eq("FILIAL", selected_filial_up)
                                     .single()
                                     .execute()
                                 )
@@ -619,8 +702,8 @@ def main():
 
                         for nome_a, alts in agrup.items():
                             filtro = (
-                                (df_assessores["NOME"].str.strip().str.upper() == nome_a.strip().upper())
-                                & (df_assessores["FILIAL"].str.strip().str.upper() == selected_filial.strip().upper())
+                                (df_assessores["NOME"].astype(str).str.strip().str.upper() == str(nome_a or "").strip().upper())
+                                & (df_assessores["FILIAL"].astype(str).str.strip().str.upper() == selected_filial_up)
                             )
                             df_sel = df_assessores.loc[filtro]
                             if df_sel.empty:
@@ -670,172 +753,173 @@ def main():
                 ):
                     st.session_state.pop(k, None)
 
-    elif pagina == "Spoiler BeSmart (Em Construção)":
-        # 1) Busca os dados brutos do Supabase
-        query = supabase.table("recebiveis_futuros") \
-                        .select("data_de_credito,cliente,nome,duracao_com,comissao_bruto,produto,seguradora") \
-                        .eq("nome_filial_equipe", selected_filial)
-        if st.session_state.role == "director":
-            nome_dir = st.session_state.dados_lider["LIDER"]
-            query = query.eq("diretor", nome_dir)
-        result = query.execute()
-        df = pd.DataFrame(result.data)
+    elif pagina == "Spoiler BeSmart":
+        # normaliza a filial para bater com o padrão do banco
+        sel_filial_up = (selected_filial or "").strip().upper()
 
-        # Verifica se o DataFrame está vazio antes de converter colunas
+        query = (
+            supabase.table("recebiveis_futuros")
+            .select("data_de_credito,cliente,nome,duracao_com,comissao_bruto,produto,seguradora")
+            .eq("nome_filial_equipe", sel_filial_up)
+        )
+        result = query.execute()
+        df = pd.DataFrame(result.data or [])
+
         if df.empty:
             st.info("Não há spoilers BeSmart para esta filial.")
         else:
-            # 1) Converte a data
-            df['data_de_credito'] = pd.to_datetime(df['data_de_credito'], errors='coerce')
+            # Conversões
+            df["data_de_credito"] = pd.to_datetime(df["data_de_credito"], errors="coerce")
+            df["duracao_com"]     = pd.to_numeric(df["duracao_com"], errors="coerce")
+            df["comissao_bruto"]  = pd.to_numeric(df["comissao_bruto"], errors="coerce")
+            df = df.dropna(subset=["data_de_credito"])
 
-            # 2) Converte colunas numéricas para float
-            df['duracao_com']    = pd.to_numeric(df['duracao_com'],    errors='coerce')
-            df['comissao_bruto'] = pd.to_numeric(df['comissao_bruto'], errors='coerce')
+            st.info(
+                "As informações abaixo são as produções BeSmart vinculadas à sua filial, que estão em apuração. "
+                "Qualquer erro ou divergência, entre em contato com Comissões."
+            )
 
-            st.info("As informações abaixo são as produções BeSmart vinculadas à sua filial, que estão em apuração. Qualquer erro ou divergência, entre em contato com Comissões.")
-
-            # 3) Filtros — Data & Assessor (estilo Painel Analítico)
-            # Define hoje com timezone BR
+            # ---------- MÊS ATUAL TRAVADO (mas com liberdade dentro do mês) ----------
             hoje = datetime.now(ZoneInfo("America/Sao_Paulo")).date()
-            mes_atual = hoje.month
-            ano_atual = hoje.year
+            primeiro_dia_mes = hoje.replace(day=1)
+            ultimo_dia_mes   = pd.Timestamp(hoje).to_period("M").end_time.date()
 
-            # Filtra apenas registros do mês e ano atual
-            df_mes_atual = df[
-                (df["data_de_credito"].dt.month == mes_atual) &
-                (df["data_de_credito"].dt.year == ano_atual)
-            ].copy()
-
-            # Se não houver dados no mês atual, mostra aviso e para
-            if df_mes_atual.empty:
-                st.info("Não há registros do BeSmart para o mês atual nesta filial.")
-                st.stop()
-
-            # Define os limites mínimo e máximo do mês atual com dados
-            min_data_mes = df_mes_atual["data_de_credito"].min()
-            max_data_mes = df_mes_atual["data_de_credito"].max()
-
-            # Inputs com limite restrito ao mês atual
-            col1, col2 = st.columns(2)
-            with col1:
+            # Widgets de data limitados ao mês atual
+            c1, c2 = st.columns(2)
+            with c1:
                 start_date = st.date_input(
                     "Data de Início",
-                    value=min_data_mes,
-                    min_value=min_data_mes,
-                    max_value=max_data_mes,
-                    key="besmart_start"
+                    value=primeiro_dia_mes,
+                    min_value=primeiro_dia_mes,
+                    max_value=ultimo_dia_mes,
+                    key="besmart_start",
                 )
-            with col2:
+            with c2:
                 end_date = st.date_input(
                     "Data de Término",
-                    value=max_data_mes,
-                    min_value=min_data_mes,
-                    max_value=max_data_mes,
-                    key="besmart_end"
+                    value=ultimo_dia_mes,
+                    min_value=primeiro_dia_mes,
+                    max_value=ultimo_dia_mes,
+                    key="besmart_end",
                 )
 
-            # Filtro por assessor
-            assessores = ["Todos"] + sorted(df_mes_atual['nome'].dropna().unique().tolist())
+            # Aplica filtro de período do mês atual
+            start_dt = datetime.combine(start_date, datetime.min.time())
+            end_dt   = datetime.combine(end_date,   datetime.max.time())
+
+            df_filt = df[(df["data_de_credito"] >= start_dt) & (df["data_de_credito"] <= end_dt)].copy()
+
+            # Filtro por assessor baseado no período aplicado
+            assessores = ["Todos"] + sorted(df_filt["nome"].dropna().unique().tolist())
             selected_assessor = st.selectbox("Filtrar por Assessor", assessores)
-
-            # Aplica os filtros definidos pelo usuário
-            # Converte date para datetime (mantendo 00:00:00 e 23:59:59 para intervalos completos)
-            start_datetime = datetime.combine(start_date, datetime.min.time())
-            end_datetime   = datetime.combine(end_date, datetime.max.time())
-
-            df = df_mes_atual[
-                (df_mes_atual["data_de_credito"] >= start_datetime) &
-                (df_mes_atual["data_de_credito"] <= end_datetime)
-            ]
             if selected_assessor != "Todos":
-                df = df[df["nome"] == selected_assessor]
+                df_filt = df_filt[df_filt["nome"] == selected_assessor]
 
-            # Espaçamento antes dos cartões
+            if df_filt.empty:
+                st.info("Sem registros no período selecionado do mês atual.")
+                st.stop()
+
+            # ---------- KPIs (usando df_filt) ----------
             st.markdown("<br>", unsafe_allow_html=True)
+            total_bruto = df_filt["comissao_bruto"].sum()
+            total_bruto_br = (
+                f"R$ {total_bruto:,.2f}"
+                .replace(",", "X").replace(".", ",").replace("X", ".")
+            )
 
-            # 4) Cartões métricos customizados
             cols = st.columns(5)
             labels = [
                 "💰 Faturamento Estimado",
                 "📄 Quantidade de Registros",
                 "👥 Clientes Únicos",
                 "🧑‍💼 Assessores Únicos",
-                "🫱🏾‍🫲🏼 Parceiros Únicos"
+                "🤝🏻 Parceiros Únicos",
             ]
             values = [
-                f"R$ {df['comissao_bruto'].sum():,.2f}",     # agora somatório numérico
-                len(df),
-                df['cliente'].nunique(),
-                df['nome'].nunique(),
-                df['seguradora'].nunique()           # agora média numérica
+                total_bruto_br,
+                len(df_filt),
+                df_filt["cliente"].nunique(),
+                df_filt["nome"].nunique(),
+                df_filt["seguradora"].nunique(),
             ]
             for c, lbl, val in zip(cols, labels, values):
-                # Título grande
                 c.markdown(
                     f"<div style='font-size:17px; font-weight:bold; margin-bottom:4px;'>{lbl}</div>",
-                    unsafe_allow_html=True
+                    unsafe_allow_html=True,
                 )
-                # Valor menor
                 c.markdown(
                     f"<div style='font-size:28px; color:#111;'>{val}</div>",
-                    unsafe_allow_html=True
+                    unsafe_allow_html=True,
                 )
 
-            # 5) Linha separadora
             st.markdown("---")
 
-            # 6) Título da tabela
+            # ---------- Tabela (usando df_filt) ----------
             st.markdown("**Detalhamento dos Spoilers BeSmart - Faturamento e Produções podem variar caso fornecedor ou relações cliente-assessor mudem.**")
 
-            # 7) Renomeia colunas para exibição
-            df_display = df.rename(columns={
-                'data_de_credito':  'Data de Crédito',
-                'cliente':          'Nome do Cliente',
-                'nome':             'Assessor',
-                'duracao_com':      'Parcela',
-                'comissao_bruto':   'Faturamento Estimado',
-                'produto':          'Produto',
-                'seguradora':       'Seguradora'
+            df_display = df_filt.rename(columns={
+                "data_de_credito": "Data de Crédito",
+                "cliente":         "Nome do Cliente",
+                "nome":            "Assessor",
+                "duracao_com":     "Parcela",
+                "comissao_bruto":  "Faturamento Estimado",
+                "produto":         "Produto",
+                "seguradora":      "Seguradora",
             })
 
-            # 7.1) Formata a data
-            df_display['Data de Crédito'] = df_display['Data de Crédito'].dt.strftime("%d/%m/%Y")
-
-
-            # 8) Formata Faturamento Estimado para “R$ 650,00”
-            df_display['Faturamento Estimado'] = (
-                df_display['Faturamento Estimado']
+            df_display["Data de Crédito"] = df_display["Data de Crédito"].dt.strftime("%d/%m/%Y")
+            df_display["Faturamento Estimado"] = (
+                df_display["Faturamento Estimado"]
                 .apply(lambda x: f"R$ {x:,.2f}")
-                # converte “,” de milhar → temporário “X”, “.” decimal → “,”, e “X” → “.”
-                .str.replace(",", "X")
-                .str.replace(".", ",")
-                .str.replace("X", ".")
+                .str.replace(",", "X").str.replace(".", ",").str.replace("X", ".")
             )
 
-            # 8) Exibe tabela UMA ÚNICA VEZ
             st.dataframe(df_display, use_container_width=True)
+
+    elif pagina == "Comissões":
+        # Usa a filial já selecionada no topo do app e o DF de assessores carregado
+        display_comissoes(df_assessores=df_assessores, filial_selecionada=selected_filial)
+
+    elif pagina in coming_soon:
+        st.markdown("## 🚧 Página em construção")
+        st.markdown(
+            "Estamos trabalhando para entregar esta funcionalidade em breve. "
+            "Obrigado pela paciência!"
+        )
+        st.image(
+            "https://www.imagensanimadas.com/data/media/695/em-construcao-imagem-animada-0035.gif",
+            width=240
+        )
 
     elif pagina == "Painel Analítico":
 
         seg_row = df_filial_lider[
-            df_filial_lider["FILIAL"].str.strip().str.upper() == selected_filial.strip().upper()
+            df_filial_lider["FILIAL"].astype(str).str.strip().str.upper() == selected_filial_up
         ].iloc[0]
         is_b2c = ((seg_row.get("SEGMENTO", "") or "").strip().upper() == "B2C")
 
+        sel_filial_up = (selected_filial or "").strip().upper()
+        df_ass_filial = df_assessores[
+            df_assessores["FILIAL"].astype(str).str.strip().str.upper() == sel_filial_up
+        ].copy()
+
         display_analytics(
             df_log=df_log,
-            df_assessores_filial=df_assessores[
-                df_assessores["FILIAL"].str.strip().str.upper() == selected_filial.strip().upper()
-            ],
+            df_assessores_filial=df_ass_filial,
             df_filial_do_lider=df_filial_lider,
             col_perc=col_perc,
             nome_lider=nome_usuario,
             filial_lider=selected_filial,
-            is_b2c=is_b2c
+            is_b2c=is_b2c,
+            role=st.session_state.role,
+            level=st.session_state.level
         )
 
     elif pagina == "Ajuda e FAQ":
         pagina_ajuda()
+
+    elif pagina == "Dashboard Admin":
+        display_admin_dashboard()    
 
     elif pagina == "Sugestão de Melhoria":
         st.markdown("### Deixe sua sugestão de melhoria")
@@ -931,27 +1015,72 @@ def main():
         st.subheader("Pendências de Validação")
         df_alt = carregar_alteracoes()
 
+        # ===== Visão Geral – Filiais com alterações pendentes (após aprovar/recusar) =====
+        if not df_alt.empty:
+            seg_por_filial = (
+                df_filial.assign(FILIAL=df_filial["FILIAL"].astype(str).str.upper().str.strip())
+                        .set_index("FILIAL")["SEGMENTO"]
+                        .astype(str).str.upper().str.strip()
+                        .to_dict()
+            )
+
+            base_mask = (
+                (df_alt["VALIDACAO NECESSARIA"] == "SIM") &
+                (df_alt["ALTERACAO APROVADA"] == "NAO") &
+                (df_alt["COMENTARIO DIRETOR"].isna() | (df_alt["COMENTARIO DIRETOR"].str.strip() == ""))
+            )
+            df_base = df_alt.loc[base_mask].copy()
+
+            resultados = []
+            for f in filiais_do_lider:
+                f_up = str(f).strip().upper()
+                segmento = (seg_por_filial.get(f_up, "") or "").strip().upper()
+                tipos_validos = ["REDUCAO", "AUMENTO"] if segmento == "B2C" else ["REDUCAO"]
+                qtd = df_base[
+                    (df_base["FILIAL"].str.strip().str.upper() == f_up) &
+                    (df_base["TIPO"].isin(tipos_validos))
+                ].shape[0]
+                # só guarda quem tem > 0
+                if qtd > 0:
+                    resultados.append({"FILIAL": f, "ALTERAÇÕES PENDENTES": int(qtd)})
+
+            if resultados:
+                df_quadro = (pd.DataFrame(resultados)
+                            .sort_values(["ALTERAÇÕES PENDENTES","FILIAL"], ascending=[False, True])
+                            .reset_index(drop=True))
+
+                st.markdown("**Visão Geral – Filiais com alterações pendentes:**")
+                st.dataframe(
+                    df_quadro,
+                    hide_index=True,
+                    use_container_width=True
+                )
+                st.markdown("---")
+
+
+        # ===== Fluxo atual por filial selecionada (mantido) =====
         # Captura segmento e define quais tipos incluir
         seg_row = df_filial_lider[
-            df_filial_lider["FILIAL"].str.strip().str.upper() == selected_filial.strip().upper()
+            df_filial_lider["FILIAL"].astype(str).str.strip().str.upper() == selected_filial_up
         ].iloc[0]
-        segmento = (seg_row.get("SEGMENTO", "") or "").strip().upper()
+        segmento = str(seg_row.get("SEGMENTO") or "").strip().upper()
         tipos_validos = ["REDUCAO", "AUMENTO"] if segmento == "B2C" else ["REDUCAO"]
+
 
         # Filtra apenas registros pendentes de validação
         df_pend = df_alt[
             (df_alt["VALIDACAO NECESSARIA"] == "SIM") &
-            (df_alt["ALTERACAO APROVADA"]      == "NAO") &
+            (df_alt["ALTERACAO APROVADA"]   == "NAO") &
             df_alt["TIPO"].isin(tipos_validos) &
-            (df_alt["FILIAL"].str.strip().str.upper() == selected_filial.strip().upper()) &
+            (df_alt["FILIAL"].astype(str).str.strip().str.upper() == selected_filial_up) &
             (
                 df_alt["COMENTARIO DIRETOR"].isna() |
-                (df_alt["COMENTARIO DIRETOR"].str.strip() == "")
+                (df_alt["COMENTARIO DIRETOR"].astype(str).str.strip() == "")
             )
         ]
 
-        # ── Fluxo do Diretor ──
-        if st.session_state.role == "director":
+        # ── Fluxo do Diretor/Admin ──
+        if level in (1, 2, 3):
 
             if df_pend.empty:
                 st.info("Não há alterações pendentes para validação.")
@@ -1048,6 +1177,20 @@ def main():
                         if not aprovados.empty:
                             st.session_state.declaration_pending = True
                             st.session_state.aprovados_para_declaracao = aprovados
+
+                            # mapeia e-mail do assessor a partir do df_assessores
+                            def _email_assessor(row):
+                                mask = (
+                                    (df_assessores["NOME"].str.strip().str.upper()   == str(row["ASSESSOR"]).strip().upper()) &
+                                    (df_assessores["FILIAL"].str.strip().str.upper() == str(selected_filial).strip().upper())
+                                )
+                                sel = df_assessores.loc[mask]
+                                return sel["EMAIL"].iloc[0] if not sel.empty else None
+
+                            aprovados = aprovados.copy()
+                            aprovados["EMAIL_ASSESSOR"]    = aprovados.apply(_email_assessor, axis=1)
+                            aprovados["EMAIL_SOLICITANTE"] = st.session_state.dados_lider["EMAIL_LIDER"]
+
                             st.session_state.df_envio = aprovados.assign(FILIAL=selected_filial)
 
                         st.success(f"{len(aprovados)} aprovação(ões) e {len(recusados)} recusa(s) registradas!")
@@ -1118,8 +1261,7 @@ def main():
                                 # Envia e-mails de resultado e de declaração
                                 send_approval_result(
                                     st.session_state.df_envio,
-                                    st.session_state.dados_lider["EMAIL_LIDER"],
-                                    st.session_state.dados_lider["EMAIL_LIDER"]
+                                    lider_email=st.session_state.dados_lider["EMAIL_LIDER"]
                                 )
                                 items_html = "".join(
                                     f"<tr><td>{row['ASSESSOR']}</td>"
@@ -1131,7 +1273,7 @@ def main():
                                 )
                                 send_declaration_email(
                                     director_email=st.session_state.dados_lider["EMAIL_LIDER"],
-                                    juridico_email="juridico@investsmart.com.br",
+                                    juridico_email="comissoes@investsmart.com.br",
                                     lider_name=st.session_state.dados_lider["LIDER"],
                                     filial=selected_filial,
                                     items_html=items_html,
@@ -1141,14 +1283,20 @@ def main():
                                 for _, row in aprovados.iterrows():
                                     produto_col = row["PRODUTO"]
                                     novo_val = int(round(parse_valor_percentual(row["PERCENTUAL DEPOIS"]) * 100))
-                                    resp = supabase.table("assessores").select("ID")\
-                                        .eq("NOME", row["ASSESSOR"].strip())\
-                                        .eq("FILIAL", selected_filial.strip().upper())\
-                                        .single().execute()
+
+                                    resp = (
+                                        supabase.table("assessores")
+                                        .select("ID")
+                                        .eq("NOME", str(row["ASSESSOR"] or "").strip())
+                                        .eq("FILIAL", selected_filial_up)
+                                        .single()
+                                        .execute()
+                                    )
                                     if resp.data:
-                                        supabase.table("assessores")\
-                                            .update({produto_col: novo_val})\
-                                            .eq("ID", resp.data["ID"]).execute()
+                                        supabase.table("assessores") \
+                                            .update({produto_col: novo_val}) \
+                                            .eq("ID", resp.data["ID"]) \
+                                            .execute()
                                 st.success("Declaração aprovada.")
 
                                 st.cache_data.clear()
@@ -1159,8 +1307,8 @@ def main():
                                 st.session_state.declaration_pending = False
                                 st.session_state["refresh_validation"] = not st.session_state.get("refresh_validation", False)
 
-        # ── Fluxo de Líder/RM (somente visualização) ──
-        elif st.session_state.role in ("leader", "leader2", "rm", "superintendent"):
+        # ── Somente visualização: Super/Leaders, RM e Comissões ──
+        elif level in (4, 5, 6):
             if df_pend.empty:
                 st.info("Não há solicitações pendentes para validação.")
             else:
