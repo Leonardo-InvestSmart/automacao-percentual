@@ -7,5 +7,4 @@ font = "sans serif"
 
 [server]
 headless = true
-
-
+fileWatcherType = "poll"   # evita erro de inotify em produção
