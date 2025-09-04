@@ -163,11 +163,21 @@ def display_comissoes(df_assessores: pd.DataFrame, filial_selecionada: str) -> N
     nomes = ["Todos"] + sorted(df["NOME"].dropna().unique().tolist())
 
     m = df.copy()
-    c1, c2 = st.columns(2)
+    c1, c2, c3 = st.columns(3)
     with c1:
         nome_sel = st.selectbox("Assessor", nomes, index=0, key="f_nome_comissoes")
     with c2:
         mes_sel  = st.selectbox("Mês de referência", meses, index=0, key="f_mes_comissoes")
+    with c3:
+        quem_opts = ["Todos"] + sorted(df["QUEM_RECEBE"].dropna().unique().tolist())
+        quem_sel  = st.selectbox("Quem recebe", quem_opts, index=0, key="f_quem_comissoes")
+
+    if nome_sel != "Todos":
+        m = m[m["NOME"] == nome_sel]
+    if mes_sel != "Todos":
+        m = m[m["MES"] == mes_sel]
+    if quem_sel != "Todos":
+        m = m[m["QUEM_RECEBE"] == quem_sel]
 
     if nome_sel != "Todos":
         m = m[m["NOME"] == nome_sel]
@@ -185,8 +195,8 @@ def display_comissoes(df_assessores: pd.DataFrame, filial_selecionada: str) -> N
     impostos    = faturamento * 0.20
     rl          = faturamento - impostos
 
-    repasse_filial = float(m.loc[m["QUEM_RECEBE"].isin(["ASSESSOR","EQUIPE"]), "VLR_COMISSAO_LIQUIDA"].sum())
-    comissoes      = float(m.loc[m["QUEM_RECEBE"] == "ASSESSOR", "VLR_COMISSAO_LIQUIDA"].sum())
+    repasse_filial = float(m.loc[m["QUEM_RECEBE"].isin(["ASSESSOR","EQUIPE", "EXTERNO"]), "VLR_COMISSAO_LIQUIDA"].sum())
+    comissoes      = float(m.loc[m["QUEM_RECEBE"].isin(["ASSESSOR", "EXTERNO"]), "VLR_COMISSAO_LIQUIDA"].sum())
     lucro_bruto    = repasse_filial - comissoes  # conforme solicitado
 
     # % do repasse sobre a RL (evita divisão por zero)
@@ -249,16 +259,75 @@ def display_comissoes(df_assessores: pd.DataFrame, filial_selecionada: str) -> N
 
     st.markdown("---")
 
-    # 5) Tabela — Comissão por Nome / Mês
-    g = (
-        m.groupby(["NOME", "SIGLA_RECEBEDOR", "MES"], as_index=False)["VLR_COMISSAO_LIQUIDA"]
+    # 5) Pareto por Assessores
+
+    st.markdown("**Pareto do 'Lucro Bruto' por Assessores**")
+
+    df_ass_pareto = (
+        m.loc[m["QUEM_RECEBE"].isin(["ASSESSOR","EXTERNO"])]
+        .groupby("NOME", as_index=False)["VLR_COMISSAO_LIQUIDA"]
         .sum()
-        .rename(columns={"VLR_COMISSAO_LIQUIDA": "COMISSAO"})
-        .sort_values(["NOME", "MES"])
+        .rename(columns={"VLR_COMISSAO_LIQUIDA": "VALOR"})
     )
-    g["COMISSAO"] = g["COMISSAO"].apply(_fmt_brl)
-    st.markdown("**Detalhamento de Comissões**")
-    st.dataframe(g, use_container_width=True, hide_index=True)
+
+    if df_ass_pareto.empty:
+        st.info("Não há comissões de assessores no recorte selecionado.")
+    else:
+        df_ass_pareto = df_ass_pareto.sort_values("VALOR", ascending=False).reset_index(drop=True)
+        total_val = float(df_ass_pareto["VALOR"].sum())
+        df_ass_pareto["ACUM"]      = df_ass_pareto["VALOR"].cumsum()
+        df_ass_pareto["ACUM_PCT"]  = (df_ass_pareto["ACUM"] / total_val).fillna(0.0)  # 0–1
+
+        # Barras (VALOR) + Linha (ACUM_% com eixo secundário)
+        bars = (
+            alt.Chart(df_ass_pareto)
+            .mark_bar(color="#9966FF")
+            .encode(
+                x=alt.X("NOME:N", sort="-y", title="Assessores (ordem decrescente)"),
+                y=alt.Y("VALOR:Q", axis=alt.Axis(title="Valor absoluto (R$)", orient="left")),
+                tooltip=[alt.Tooltip("NOME:N"), alt.Tooltip("VALOR:Q", format=",.2f")]
+            )
+        )
+
+        # texto com os valores em cima das barras
+        text_labels = (
+            alt.Chart(df_ass_pareto)
+            .mark_text(align="center", baseline="bottom", dy=-5, fontSize=12, color="black")
+            .encode(
+                x=alt.X("NOME:N", sort="-y"),
+                y=alt.Y("VALOR:Q", axis=None),          # <- desliga o eixo deste layer
+                text=alt.Text("VALOR:Q", format=",.0f")
+            )
+        )
+
+        line = (
+            alt.Chart(df_ass_pareto)
+            .mark_line(
+                color="#000000",
+                strokeWidth=2.5,
+                point=alt.OverlayMarkDef(filled=True, color="#000000")
+            )
+            .encode(
+                x=alt.X("NOME:N", sort="-y"),
+                y=alt.Y(
+                    "ACUM_PCT:Q",
+                    axis=alt.Axis(title="% acumulado", orient="right", format=".0%"),  # só mantém eixo da direita
+                    scale=alt.Scale(domain=[0, 1], nice=False, clamp=True)
+                ),
+                tooltip=[
+                    alt.Tooltip("NOME:N", title="Assessor"),
+                    alt.Tooltip("ACUM_PCT:Q", format=".1%", title="% acumulado")
+                ]
+            )
+        )
+
+
+        st.altair_chart(
+            alt.layer(bars, text_labels, line)
+            .resolve_scale(y="independent")
+            .properties(height=360),
+            use_container_width=True
+        )
 
 
     st.markdown("---")
@@ -278,8 +347,8 @@ def display_comissoes(df_assessores: pd.DataFrame, filial_selecionada: str) -> N
 
     # Ajuste das agregações (mais explícito e estável)
     tmp = m.groupby(["MES","QUEM_RECEBE"], as_index=False)["VLR_COMISSAO_LIQUIDA"].sum()
-    rep  = tmp[tmp["QUEM_RECEBE"].isin(["ASSESSOR","EQUIPE"])].groupby("MES", as_index=False)["VLR_COMISSAO_LIQUIDA"].sum().rename(columns={"VLR_COMISSAO_LIQUIDA":"REPASSE"})
-    com  = tmp[tmp["QUEM_RECEBE"].eq("ASSESSOR")].groupby("MES", as_index=False)["VLR_COMISSAO_LIQUIDA"].sum().rename(columns={"VLR_COMISSAO_LIQUIDA":"COMISSOES"})
+    rep  = tmp[tmp["QUEM_RECEBE"].isin(["ASSESSOR","EQUIPE","EXTERNO"])].groupby("MES", as_index=False)["VLR_COMISSAO_LIQUIDA"].sum().rename(columns={"VLR_COMISSAO_LIQUIDA":"REPASSE"})
+    com  = tmp[tmp["QUEM_RECEBE"].isin(["ASSESSOR","EXTERNO"])].groupby("MES", as_index=False)["VLR_COMISSAO_LIQUIDA"].sum().rename(columns={"VLR_COMISSAO_LIQUIDA":"COMISSOES"})
     fat  = m.groupby("MES", as_index=False)["VLR_COMISSAO_BRUTA"].sum().rename(columns={"VLR_COMISSAO_BRUTA":"FATURAMENTO"})
 
     g_mes = fat.merge(rep, on="MES", how="left").merge(com, on="MES", how="left").fillna(0.0)
@@ -377,74 +446,3 @@ def display_comissoes(df_assessores: pd.DataFrame, filial_selecionada: str) -> N
     )
     pvt = pvt.applymap(_fmt_brl)
     st.dataframe(pvt, use_container_width=True)
-
-    st.markdown("---")
-
-    # ===== Gráfico 2: Pareto por Assessores (usando comissão como proxy) =====
-    st.markdown("**Pareto do 'Lucro Bruto' por Assessores**")
-
-    df_ass_pareto = (
-        m.loc[m["QUEM_RECEBE"] == "ASSESSOR"]
-        .groupby("NOME", as_index=False)["VLR_COMISSAO_LIQUIDA"]
-        .sum()
-        .rename(columns={"VLR_COMISSAO_LIQUIDA": "VALOR"})
-    )
-
-    if df_ass_pareto.empty:
-        st.info("Não há comissões de assessores no recorte selecionado.")
-    else:
-        df_ass_pareto = df_ass_pareto.sort_values("VALOR", ascending=False).reset_index(drop=True)
-        total_val = float(df_ass_pareto["VALOR"].sum())
-        df_ass_pareto["ACUM"]      = df_ass_pareto["VALOR"].cumsum()
-        df_ass_pareto["ACUM_PCT"]  = (df_ass_pareto["ACUM"] / total_val).fillna(0.0)  # 0–1
-
-        # Barras (VALOR) + Linha (ACUM_% com eixo secundário)
-        bars = (
-            alt.Chart(df_ass_pareto)
-            .mark_bar(color="#9966FF")
-            .encode(
-                x=alt.X("NOME:N", sort="-y", title="Assessores (ordem decrescente)"),
-                y=alt.Y("VALOR:Q", axis=alt.Axis(title="Valor absoluto (R$)", orient="left")),
-                tooltip=[alt.Tooltip("NOME:N"), alt.Tooltip("VALOR:Q", format=",.2f")]
-            )
-        )
-
-        # texto com os valores em cima das barras
-        text_labels = (
-            alt.Chart(df_ass_pareto)
-            .mark_text(align="center", baseline="bottom", dy=-5, fontSize=12, color="black")
-            .encode(
-                x=alt.X("NOME:N", sort="-y"),
-                y=alt.Y("VALOR:Q", axis=None),          # <- desliga o eixo deste layer
-                text=alt.Text("VALOR:Q", format=",.0f")
-            )
-        )
-
-        line = (
-            alt.Chart(df_ass_pareto)
-            .mark_line(
-                color="#000000",
-                strokeWidth=2.5,
-                point=alt.OverlayMarkDef(filled=True, color="#000000")
-            )
-            .encode(
-                x=alt.X("NOME:N", sort="-y"),
-                y=alt.Y(
-                    "ACUM_PCT:Q",
-                    axis=alt.Axis(title="% acumulado", orient="right", format=".0%"),  # só mantém eixo da direita
-                    scale=alt.Scale(domain=[0, 1], nice=False, clamp=True)
-                ),
-                tooltip=[
-                    alt.Tooltip("NOME:N", title="Assessor"),
-                    alt.Tooltip("ACUM_PCT:Q", format=".1%", title="% acumulado")
-                ]
-            )
-        )
-
-
-        st.altair_chart(
-            alt.layer(bars, text_labels, line)
-            .resolve_scale(y="independent")
-            .properties(height=360),
-            use_container_width=True
-        )
