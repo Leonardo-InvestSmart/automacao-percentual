@@ -9,8 +9,8 @@ from modules.formatters import parse_valor_percentual
 
 def display_admin_dashboard():
     # guard rail: se não for admin, barra
-    if st.session_state.get("level") != 1:
-        st.error("Acesso restrito ao nível 1 (ADMIN).")
+    if st.session_state.get("level") not in (1, 6):
+        st.error("Acesso restrito: apenas Admin (1) e Leitura Global (6).")
         st.stop()
 
     st.subheader("Visão Geral da Plataforma (Admin)")

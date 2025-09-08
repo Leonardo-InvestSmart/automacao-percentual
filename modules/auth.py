@@ -16,7 +16,7 @@ from modules.db import registrar_acesso
 
 LEVEL_BY_ROLE = {
     "admin": 1,
-    "rh": 2,
+    "rh": 6,
     "director": 3,
     "superintendent": 4,
     "leader": 4,
@@ -82,7 +82,7 @@ def do_login_stage1():
                 "EMAIL_LIDER": rh_email
             }
             st.session_state.role        = "rh"
-            st.session_state.level       = 2   # ✅ RH = nível 2
+            st.session_state.level       = 6   # ✅ RH = nível 2
             st.session_state.login_stage = 2
             st.info("Código de verificação enviado para seu e-mail (RH).")
         else:
