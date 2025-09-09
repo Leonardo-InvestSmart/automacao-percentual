@@ -624,29 +624,22 @@ def main():
 
                     # 4) envia ao Diretor todas as solicitações pendentes
                     if solicitacoes:
-                        # pega o possível diretor da 1ª linha filtrada; se vier None/NaN, vira ""
-                        diretor_nome_raw = df_filial_lider.iloc[0].get("DIRETOR", "")
+                        row_filial = df_filial_lider[
+                            df_filial_lider["FILIAL"].astype(str).str.strip().str.upper() == selected_filial_up
+                        ]
+                        diretor_nome_raw = row_filial.iloc[0].get("DIRETOR", "") if not row_filial.empty else ""
                         diretor_nome = str(diretor_nome_raw or "").strip().upper()
 
-                        # busca o e-mail no secrets com .get para evitar KeyError
                         dir_emails = st.secrets.get("director_emails", {})
                         diretor_email = dir_emails.get(diretor_nome, None)
 
                         if not diretor_nome or not diretor_email:
-                            st.warning(
-                                "Não foi possível identificar o Diretor/e-mail da filial. "
-                                "As solicitações não foram enviadas para validação por e-mail."
-                            )
+                            st.warning("Não foi possível identificar o Diretor/e-mail da filial. As solicitações não foram enviadas para validação por e-mail.")
                         else:
                             for alt in solicitacoes:
                                 send_director_request(
-                                    diretor_email,
-                                    nome_usuario,
-                                    selected_filial,
-                                    alt["NOME"],
-                                    alt["PRODUTO"],
-                                    alt["PERCENTUAL ANTES"],
-                                    alt["PERCENTUAL DEPOIS"],
+                                    diretor_email, nome_usuario, selected_filial,
+                                    alt["NOME"], alt["PRODUTO"], alt["PERCENTUAL ANTES"], alt["PERCENTUAL DEPOIS"],
                                     "https://smartc.streamlit.app/"
                                 )
                             st.info("As alterações foram encaminhadas ao Diretor para validação.")
@@ -1285,7 +1278,7 @@ def main():
                                 )
                                 send_declaration_email(
                                     director_email=st.session_state.dados_lider["EMAIL_LIDER"],
-                                    juridico_email="comissoes@investsmart.com.br",
+                                    juridico_email="juridico@investsmart.com.br",
                                     lider_name=st.session_state.dados_lider["LIDER"],
                                     filial=selected_filial,
                                     items_html=items_html,

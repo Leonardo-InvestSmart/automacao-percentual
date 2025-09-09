@@ -131,64 +131,54 @@ def send_director_request(
     )
 
 def send_approval_result(df_changes, lider_email):
-    """
-    Envia o e-mail de confirmação de aprovação das reduções.
-    Agora notifica: Líder (solicitante), Diretor (via lider_email como cópia se desejar),
-    Assessor impactado e Solicitante (quando disponível em df_changes).
-    Espera que df_changes contenha as colunas:
-      - EMAIL_ASSESSOR
-      - EMAIL_SOLICITANTE
-    """
     if df_changes is None or df_changes.empty:
         return
 
-    # constrói tabela HTML (mantém o que você já tem hoje)
-    linhas = []
+    # agrupa por assessor (e opcionalmente por solicitante)
+    # assim cada e-mail conterá apenas as linhas de um assessor
+    grupos = {}
     for _, row in df_changes.iterrows():
-        linhas.append(
-            f"<tr>"
-            f"<td>{row.get('ASSESSOR','')}</td>"
-            f"<td>{row.get('PRODUTO','')}</td>"
-            f"<td>{row.get('PERCENTUAL ANTES','')}%</td>"
-            f"<td>{row.get('PERCENTUAL DEPOIS','')}%</td>"
-            f"<td>{row.get('TIMESTAMP','')}</td>"
-            f"</tr>"
+        chave = (
+            (row.get("ASSESSOR") or "").strip().upper(),
+            (row.get("EMAIL_ASSESSOR") or "").strip(),
+            (row.get("EMAIL_SOLICITANTE") or "").strip()
         )
-    items_html = "".join(linhas)
+        grupos.setdefault(chave, []).append(row)
 
-    subject = "Confirmação de aprovação de redução de percentual"
-    conteudo_html = f"""
-    <p>As reduções abaixo foram <strong>aprovadas</strong> pelo Diretor:</p>
-    <table border="1" cellpadding="6" cellspacing="0">
-      <thead>
-        <tr>
-          <th>Assessor</th><th>Produto</th><th>Antes</th><th>Depois</th><th>Data/Hora</th>
-        </tr>
-      </thead>
-      <tbody>{items_html}</tbody>
-    </table>
-    """
+    for (assessor_nome, email_ass, email_sol), linhas in grupos.items():
+        # monta a tabela apenas com as reduções daquele assessor
+        itens = []
+        for r in linhas:
+            itens.append(
+                f"<tr>"
+                f"<td>{r.get('ASSESSOR','')}</td>"
+                f"<td>{r.get('PRODUTO','')}</td>"
+                f"<td>{r.get('PERCENTUAL ANTES','')}%</td>"
+                f"<td>{r.get('PERCENTUAL DEPOIS','')}%</td>"
+                f"<td>{r.get('TIMESTAMP','')}</td>"
+                f"</tr>"
+            )
+        items_html = "".join(itens)
 
-    html = _build_email_html(subject, conteudo_html)
+        subject = f"Confirmação de aprovação – {assessor_nome}"
+        conteudo_html = f"""
+        <p>As reduções abaixo foram <strong>aprovadas</strong> pelo Diretor:</p>
+        <table border="1" cellpadding="6" cellspacing="0">
+          <thead><tr><th>Assessor</th><th>Produto</th><th>Antes</th><th>Depois</th><th>Data/Hora</th></tr></thead>
+          <tbody>{items_html}</tbody>
+        </table>
+        """
+        html = _build_email_html(subject, conteudo_html)
 
-    # --- NOVO: destinatários ---
-    destinatarios = set()
-    # fallback: sempre inclui o líder logado
-    if lider_email:
-        destinatarios.add(lider_email)
+        # destinatários SOMENTE deste assessor
+        dest = set()
+        if lider_email: dest.add(lider_email)
+        if email_ass:  dest.add(email_ass)
+        if email_sol:  dest.add(email_sol)
 
-    # pega por linha os e-mails do assessor e do solicitante
-    for _, row in df_changes.iterrows():
-        email_ass = (row.get("EMAIL_ASSESSOR") or "").strip()
-        email_sol = (row.get("EMAIL_SOLICITANTE") or "").strip()
-        if email_ass:
-            destinatarios.add(email_ass)
-        if email_sol:
-            destinatarios.add(email_sol)
+        if dest:
+            enviar_resumo_email(list(dest), subject, html, content_type="HTML")
 
-    # dispara (HTML)
-    if destinatarios:
-        enviar_resumo_email(list(destinatarios), subject, html, content_type="HTML")
 
 
 def send_declaration_email(

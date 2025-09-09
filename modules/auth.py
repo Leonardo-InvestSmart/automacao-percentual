@@ -82,7 +82,7 @@ def do_login_stage1():
                 "EMAIL_LIDER": rh_email
             }
             st.session_state.role        = "rh"
-            st.session_state.level       = 6   # ✅ RH = nível 2
+            st.session_state.level       = 6
             st.session_state.login_stage = 2
             st.info("Código de verificação enviado para seu e-mail (RH).")
         else:
