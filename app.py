@@ -149,17 +149,20 @@ def main():
             ]
         elif level == 4:
             if role == "superintendent":
-                df_filial_lider = df_filial[df_filial["SUPERINTENDENTE"].str.strip().str.upper() == nome_up]
-            else:  # leader / leader2
-                coluna = "LIDER" if role == "leader" else "LIDER2"
-                df_filial_lider = df_filial[df_filial[coluna].str.strip().str.upper() == nome_up]
+                df_filial_lider = df_filial[
+                    df_filial["SUPERINTENDENTE"].astype(str).str.strip().str.upper() == nome_up
+                ]
+            else:
+                # ✅ Sempre LIDER OU LIDER2
+                df_filial_lider = df_filial[
+                    df_filial["LIDER"].astype(str).str.strip().str.upper().eq(nome_up)
+                    | df_filial["LIDER2"].astype(str).str.strip().str.upper().eq(nome_up)
+                ]
         elif level == 5:  # RM
             df_filial_lider = df_filial[df_filial["RM"].str.strip().str.upper() == nome_up]
         else:
             st.error("Nível de acesso desconhecido. Contate Comissões.")
             st.stop()
-
-
 
     filiais_do_lider = (
         df_filial_lider["FILIAL"]
